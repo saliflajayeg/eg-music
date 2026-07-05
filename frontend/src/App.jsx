@@ -12,6 +12,7 @@ import Upload    from './pages/Upload'
 import Search    from './pages/Search'
 import Subscribe from './pages/Subscribe'
 import Admin     from './pages/Admin'
+import ChangePassword from './pages/ChangePassword'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
               <Route path="/search"    element={<Search />} />
               <Route path="/upload"    element={<Upload />} />
               <Route path="/subscribe" element={<Subscribe />} />
+              <Route path="/password"  element={<ChangePassword />} />
               <Route path="/admin"     element={<Admin />} />
               <Route path="/user/:id"  element={<Profile />} />
               <Route path="*"          element={<Navigate to="/" />} />

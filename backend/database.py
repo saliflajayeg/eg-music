@@ -139,6 +139,10 @@ class Database:
         self.conn.execute(f'UPDATE users SET {sets} WHERE id=?', (*fields.values(), uid))
         self.conn.commit()
 
+    def update_password(self, uid, password_hash):
+        self.conn.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash, uid))
+        self.conn.commit()
+
     def get_all_users(self):
         rows = self.conn.execute(
             'SELECT id,username,email,display_name,plan,is_admin,created_at FROM users ORDER BY created_at DESC'

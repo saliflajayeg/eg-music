@@ -41,6 +41,9 @@ export default function Navbar() {
                   <Link to={`/user/${user.id}`} style={s.dropItem} onClick={() => setMenuOpen(false)}>
                     Mi perfil
                   </Link>
+                  <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                    Cambiar contraseña
+                  </Link>
                   {user.plan !== 'legend' && (
                     <Link to="/subscribe" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                       ✦ {user.plan === 'free' ? 'Suscribirse' : 'Mejorar plan'}

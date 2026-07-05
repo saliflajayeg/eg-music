@@ -113,6 +113,19 @@ def login(body: LoginBody):
 def me(user=Depends(require_user)):
     return _safe_user(user)
 
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/api/auth/change-password")
+def change_password(body: ChangePasswordBody, user=Depends(require_user)):
+    if not verify_password(body.current_password, user['password_hash']):
+        raise HTTPException(401, "La contraseña actual no es correcta")
+    if len(body.new_password) < 6:
+        raise HTTPException(400, "La nueva contraseña debe tener al menos 6 caracteres")
+    db.update_password(user['id'], hash_password(body.new_password))
+    return {"ok": True}
+
 def _safe_user(u):
     d = {k: u[k] for k in ('id','username','email','display_name','bio','avatar','plan','is_admin','created_at')}
     d['upload_count'] = db.count_user_tracks(u['id'])

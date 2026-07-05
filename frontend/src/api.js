@@ -29,9 +29,10 @@ const del    = path          => req('DELETE', path)
 const postForm = (path, fd)  => req('POST',   path, fd, true)
 
 // Auth
-export const register = body   => post('/auth/register', body)
-export const login    = body   => post('/auth/login',    body)
-export const getMe    = ()     => get('/auth/me')
+export const register       = body => post('/auth/register', body)
+export const login          = body => post('/auth/login',    body)
+export const getMe          = ()   => get('/auth/me')
+export const changePassword = body => post('/auth/change-password', body)
 
 // Users
 export const getUser        = id  => get(`/users/${id}`)
