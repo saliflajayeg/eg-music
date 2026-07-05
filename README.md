@@ -40,9 +40,12 @@ Requisitos: **Python 3.11+** y **Node.js 18+**.
 ### Opción rápida (scripts incluidos)
 
 ```bat
-install.bat   :: crea el entorno virtual, instala dependencias y compila el frontend
-start.bat     :: arranca la app en http://localhost:8001
+install.bat        :: crea el entorno virtual, instala dependencias y compila el frontend
+start.bat          :: arranca la app en http://localhost:8001 (local / LAN)
+start-online.bat   :: arranca la app Y la publica en internet con un túnel de Cloudflare
 ```
+
+**Publicar en internet desde tu propio PC:** instala [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) y ejecuta `start-online.bat`. Te dará una dirección pública `https://….trycloudflare.com` que puedes compartir — no requiere cuenta ni tarjeta. La dirección cambia en cada arranque y el sitio solo está online mientras el PC esté encendido con las ventanas abiertas.
 
 ### Manual
 

@@ -5,7 +5,6 @@ from typing import Optional
 from fastapi import (FastAPI, HTTPException, Request, Depends, UploadFile, File, Form)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
@@ -373,11 +372,21 @@ def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
         db.set_setting('site_name', body.site_name)
     return db.get_all_settings()
 
-# ── Static frontend ────────────────────────────────────────────────────────────
+# ── Static frontend (SPA) ──────────────────────────────────────────────────────
 
-_STATIC = BASE_DIR.parent / 'frontend' / 'dist'
+_STATIC = (BASE_DIR.parent / 'frontend' / 'dist').resolve()
 if _STATIC.is_dir():
-    app.mount("/", StaticFiles(directory=str(_STATIC), html=True), name="static")
+    @app.get("/{full_path:path}")
+    def spa(full_path: str):
+        # API routes are matched first; anything unknown under /api is a real 404
+        if full_path.startswith("api/"):
+            raise HTTPException(404)
+        file = (_STATIC / full_path).resolve()
+        # Path-traversal guard: never serve anything outside dist/
+        if full_path and file.is_file() and file.is_relative_to(_STATIC):
+            return FileResponse(str(file))
+        # Any other route (/register, /subscribe, ...) -> the React app
+        return FileResponse(str(_STATIC / "index.html"))
 
 # ── Entry ──────────────────────────────────────────────────────────────────────
 
