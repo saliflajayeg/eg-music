@@ -65,6 +65,7 @@ class Database:
                 user_id    INTEGER NOT NULL,
                 plan       TEXT DEFAULT 'pro',
                 note       TEXT DEFAULT '',
+                receipt    TEXT DEFAULT '',
                 status     TEXT DEFAULT 'pending',
                 reviewed_by INTEGER,
                 review_note TEXT DEFAULT '',
@@ -79,7 +80,7 @@ class Database:
             );
 
             INSERT OR IGNORE INTO settings VALUES
-                ('payment_instructions', 'Para suscribirte envía el pago a:\n\nBanco: [Tu banco]\nCuenta: [Tu número de cuenta]\nNombre: [Tu nombre]\nMonto: [Precio]\n\nLuego ingresa tu referencia de pago abajo.'),
+                ('payment_instructions', 'Paga con Muni Dinero 📱\n\n1. Abre Muni Dinero en tu teléfono\n2. Envía el importe de tu plan a:\n     Número: [TU NÚMERO MUNI DINERO]\n     Nombre: [TU NOMBRE]\n3. Guarda una captura o foto del recibo del pago\n4. Sube la foto del recibo aquí abajo y envía tu solicitud\n\nEl administrador confirmará el pago y activará tu plan.'),
                 ('pro_price', '3000 XAF / mes'),
                 ('legend_price', '7000 XAF / mes'),
                 ('pro_upload_limit', '15'),
@@ -102,6 +103,8 @@ class Database:
         req_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(subscription_requests)").fetchall()]
         if 'plan' not in req_cols:
             self.conn.execute("ALTER TABLE subscription_requests ADD COLUMN plan TEXT DEFAULT 'pro'")
+        if 'receipt' not in req_cols:
+            self.conn.execute("ALTER TABLE subscription_requests ADD COLUMN receipt TEXT DEFAULT ''")
 
         if self.get_setting('site_name') == 'SoundUp':
             self.set_setting('site_name', 'EG Music')
@@ -309,17 +312,22 @@ class Database:
 
     # ── Subscription requests ─────────────────────────────────────────────────
 
-    def create_sub_request(self, user_id, plan, note):
+    def create_sub_request(self, user_id, plan, note, receipt=''):
         # Cancel any previous pending
         self.conn.execute(
             "UPDATE subscription_requests SET status='cancelled' WHERE user_id=? AND status='pending'",
             (user_id,)
         )
         cur = self.conn.execute(
-            'INSERT INTO subscription_requests (user_id, plan, note) VALUES (?,?,?)', (user_id, plan, note)
+            'INSERT INTO subscription_requests (user_id, plan, note, receipt) VALUES (?,?,?,?)',
+            (user_id, plan, note, receipt)
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def get_sub_request(self, req_id):
+        r = self.conn.execute('SELECT * FROM subscription_requests WHERE id=?', (req_id,)).fetchone()
+        return dict(r) if r else None
 
     def get_sub_requests(self, status=None):
         q = '''

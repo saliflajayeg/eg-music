@@ -12,6 +12,8 @@ export default function Subscribe() {
   const [myReq, setMyReq]       = useState(null)
   const [selected, setSelected] = useState(null) // 'pro' | 'legend' | null
   const [note, setNote]         = useState('')
+  const [receipt, setReceipt]   = useState(null)
+  const [receiptPreview, setReceiptPreview] = useState(null)
   const [loading, setLoading]   = useState(false)
   const [sent, setSent]         = useState(false)
   const [error, setError]       = useState('')
@@ -28,11 +30,23 @@ export default function Subscribe() {
     </div>
   )
 
+  function handleReceipt(e) {
+    const f = e.target.files[0]
+    if (!f) return
+    setReceipt(f)
+    setReceiptPreview(URL.createObjectURL(f))
+  }
+
   async function submit(e) {
     e.preventDefault()
+    if (!receipt) { setError('Sube la foto de tu recibo de Muni Dinero'); return }
     setLoading(true); setError('')
     try {
-      await requestSub({ plan: selected, note: note.trim() })
+      const fd = new FormData()
+      fd.append('plan', selected)
+      fd.append('note', note.trim())
+      fd.append('receipt', receipt)
+      await requestSub(fd)
       setSent(true)
       setMyReq({ status:'pending', plan: selected, note: note.trim() })
     } catch (err) {
@@ -76,7 +90,8 @@ export default function Subscribe() {
         <button onClick={() => setSelected(null)} style={s.backBtn}>← Volver a los planes</button>
         <h1 style={{fontSize:22,fontWeight:700,marginBottom:6}}>Solicitar plan {PLAN_LABEL[selected]}</h1>
         <p style={{color:'var(--text2)',marginBottom:20,fontSize:14}}>
-          Tu solicitud será revisada por un administrador tras confirmar el pago.
+          Paga con <strong style={{color:'var(--text)'}}>Muni Dinero</strong>, sube la foto del recibo y
+          un administrador activará tu plan.
         </p>
 
         <div style={{...s.priceBox, borderColor: color}}>
@@ -85,7 +100,7 @@ export default function Subscribe() {
 
         {info && (
           <div style={s.instructions}>
-            <h3 style={{fontWeight:700,marginBottom:10}}>Instrucciones de pago</h3>
+            <h3 style={{fontWeight:700,marginBottom:10}}>📱 Cómo pagar con Muni Dinero</h3>
             <pre style={{whiteSpace:'pre-wrap',fontSize:13,color:'var(--text2)',lineHeight:1.6}}>
               {info.instructions}
             </pre>
@@ -96,13 +111,31 @@ export default function Subscribe() {
 
         <form onSubmit={submit} style={{display:'flex',flexDirection:'column',gap:12}}>
           <label style={{fontSize:13,fontWeight:600,color:'var(--text2)'}}>
-            Referencia de pago (opcional pero recomendado)
+            Foto del recibo de pago *
           </label>
-          <textarea className="input" rows={3}
-            placeholder="Ej: Transferencia realizada el 01/07/2026, referencia #ABC123..."
+          <label style={s.receiptLabel}>
+            {receiptPreview ? (
+              <img src={receiptPreview} style={s.receiptPreview} alt="recibo" />
+            ) : (
+              <div style={s.receiptPlaceholder}>
+                <div style={{fontSize:30}}>📷</div>
+                <span style={{fontSize:13,color:'var(--text3)',marginTop:6}}>
+                  Toca para subir la foto o captura del recibo de Muni Dinero
+                </span>
+              </div>
+            )}
+            <input type="file" accept="image/*" onChange={handleReceipt} style={{display:'none'}} />
+          </label>
+
+          <label style={{fontSize:13,fontWeight:600,color:'var(--text2)'}}>
+            Nota (opcional)
+          </label>
+          <textarea className="input" rows={2}
+            placeholder="Ej: Pago enviado desde el número 555 123 456..."
             value={note} onChange={e => setNote(e.target.value)}
             style={{resize:'vertical'}} />
-          <button className="btn-primary" type="submit" disabled={loading} style={{alignSelf:'flex-start',padding:'11px 28px'}}>
+          <button className="btn-primary" type="submit" disabled={loading || !receipt}
+            style={{alignSelf:'flex-start',padding:'11px 28px',opacity: !receipt ? .55 : 1}}>
             {loading ? 'Enviando...' : 'Enviar solicitud'}
           </button>
         </form>
@@ -172,6 +205,15 @@ const s = {
   instructions: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:20,marginBottom:20},
   error: {background:'rgba(var(--danger-rgb),.15)',color:'var(--danger)',padding:'10px 14px',borderRadius:8,marginBottom:12,fontSize:13},
   plansGrid: {display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(230px,1fr))',gap:20},
+  receiptLabel: {
+    display:'block',borderRadius:10,overflow:'hidden',cursor:'pointer',
+    border:'2px dashed var(--border)',background:'var(--bg2)',
+  },
+  receiptPreview: {width:'100%',maxHeight:320,objectFit:'contain',display:'block',background:'#000'},
+  receiptPlaceholder: {
+    display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+    padding:'28px 16px',textAlign:'center',
+  },
   planCard: {
     background:'var(--bg2)',border:'2px solid var(--border)',borderRadius:14,
     padding:'24px 20px',display:'flex',flexDirection:'column',

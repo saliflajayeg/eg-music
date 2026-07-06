@@ -21,13 +21,14 @@ db  = Database()
 
 PLANS = ('free', 'pro', 'legend')
 
-BASE_DIR    = Path(__file__).parent
-UPLOADS_DIR = BASE_DIR / "uploads"
-TRACKS_DIR  = UPLOADS_DIR / "tracks"
-COVERS_DIR  = UPLOADS_DIR / "covers"
-AVATARS_DIR = UPLOADS_DIR / "avatars"
+BASE_DIR     = Path(__file__).parent
+UPLOADS_DIR  = BASE_DIR / "uploads"
+TRACKS_DIR   = UPLOADS_DIR / "tracks"
+COVERS_DIR   = UPLOADS_DIR / "covers"
+AVATARS_DIR  = UPLOADS_DIR / "avatars"
+RECEIPTS_DIR = UPLOADS_DIR / "receipts"
 
-for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR):
+for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -294,10 +295,6 @@ def search(q: str = ''):
 
 # ── Subscription ───────────────────────────────────────────────────────────────
 
-class SubRequestBody(BaseModel):
-    plan: str
-    note: str = ''
-
 @app.get("/api/subscription/info")
 def sub_info():
     return {
@@ -312,13 +309,23 @@ def my_sub_request(user=Depends(require_user)):
     return db.get_my_sub_request(user['id'])
 
 @app.post("/api/subscription/request")
-def request_subscription(body: SubRequestBody, user=Depends(require_user)):
-    if body.plan not in ('pro', 'legend'):
+async def request_subscription(
+    plan:    str = Form(...),
+    note:    str = Form(''),
+    receipt: UploadFile = File(...),
+    user=Depends(require_user),
+):
+    if plan not in ('pro', 'legend'):
         raise HTTPException(400, "Plan inválido")
-    if user['plan'] == body.plan:
-        raise HTTPException(400, f"Ya tienes el plan {body.plan}")
-    rid = db.create_sub_request(user['id'], body.plan, body.note)
-    return {"id": rid, "status": "pending", "plan": body.plan}
+    if user['plan'] == plan:
+        raise HTTPException(400, f"Ya tienes el plan {plan}")
+    ext = Path(receipt.filename or '').suffix.lower()
+    if ext not in IMAGE_MIME:
+        raise HTTPException(400, "El recibo debe ser una imagen (JPG, PNG o WEBP)")
+    fname = f"receipt_{user['id']}_{uuid.uuid4().hex}{ext}"
+    (RECEIPTS_DIR / fname).write_bytes(await receipt.read())
+    rid = db.create_sub_request(user['id'], plan, note.strip(), fname)
+    return {"id": rid, "status": "pending", "plan": plan}
 
 # ── Admin ──────────────────────────────────────────────────────────────────────
 
@@ -359,6 +366,16 @@ def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admi
 @app.get("/api/admin/subscriptions")
 def admin_sub_requests(status: str = '', user=Depends(require_admin)):
     return db.get_sub_requests(status or None)
+
+@app.get("/api/admin/subscriptions/{req_id}/receipt")
+def admin_sub_receipt(req_id: int, user=Depends(require_admin)):
+    req = db.get_sub_request(req_id)
+    if not req or not req.get('receipt'):
+        raise HTTPException(404, "Esta solicitud no tiene recibo")
+    path = RECEIPTS_DIR / req['receipt']
+    if not path.exists():
+        raise HTTPException(404, "Archivo de recibo no encontrado")
+    return FileResponse(str(path), media_type=_mime(req['receipt'], IMAGE_MIME))
 
 @app.post("/api/admin/subscriptions/{req_id}/review")
 def admin_review_sub(req_id: int, body: ReviewBody, user=Depends(require_admin)):

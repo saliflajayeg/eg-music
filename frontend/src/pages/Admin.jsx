@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   adminStats, adminUsers, adminUpdateUser,
-  adminSubs, adminReviewSub,
+  adminSubs, adminReviewSub, adminReceiptUrl,
   adminGetSettings, adminSaveSettings,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -107,6 +107,7 @@ function SubsPanel({ onRefresh }) {
                 </div>
                 <div style={{fontSize:12,color:'var(--text3)'}}>{r.email} · {r.created_at?.slice(0,16)}</div>
                 {r.note && <div style={{fontSize:13,color:'var(--text2)',marginTop:6,fontStyle:'italic'}}>"{r.note}"</div>}
+                {r.receipt && <ReceiptViewer reqId={r.id} />}
                 {r.review_note && <div style={{fontSize:12,color:'var(--danger)',marginTop:4}}>Motivo: {r.review_note}</div>}
               </div>
               <div style={{display:'flex',gap:8,flexShrink:0}}>
@@ -127,6 +128,37 @@ function SubsPanel({ onRefresh }) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function ReceiptViewer({ reqId }) {
+  const [url, setUrl] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function toggle() {
+    if (url) { setUrl(null); return }
+    setLoading(true)
+    try { setUrl(await adminReceiptUrl(reqId)) }
+    catch (e) { alert(e.message) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div style={{marginTop:8}}>
+      <button onClick={toggle} style={{
+        fontSize:12,fontWeight:600,color:'var(--accent2)',cursor:'pointer',
+        background:'var(--bg3)',border:'1px solid var(--border)',
+        borderRadius:6,padding:'5px 12px',
+      }}>
+        {loading ? 'Cargando...' : url ? 'Ocultar recibo' : '📄 Ver recibo de pago'}
+      </button>
+      {url && (
+        <img src={url} alt="recibo de pago" style={{
+          display:'block',marginTop:10,maxWidth:340,maxHeight:420,
+          borderRadius:8,border:'1px solid var(--border)',objectFit:'contain',
+        }} />
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 # EG Music 🎵
 
-Plataforma de música para **Guinea Ecuatorial**: los usuarios escuchan gratis y, con un plan de pago, suben y comparten su propia música. Pensada para funcionar en local y en red local (LAN), con pagos manuales por transferencia bancaria y aprobación del administrador.
+Plataforma de música para **Guinea Ecuatorial**: los usuarios escuchan gratis y, con un plan de pago, suben y comparten su propia música. Pensada para funcionar en local y en red local (LAN), con pagos por **Muni Dinero** (dinero móvil): el usuario paga, sube la foto de su recibo y el administrador aprueba la solicitud.
 
 La interfaz usa los colores de la bandera de Guinea Ecuatorial (verde, blanco, rojo, azul y dorado) y está en español.
 
@@ -22,7 +22,7 @@ Los precios y el límite de subidas del plan Pro se editan desde el panel de adm
 - ⬆️ Subida de canciones (MP3, FLAC, WAV, OGG, M4A) con portada y metadatos.
 - 👤 Cuentas de usuario con JWT, perfiles públicos, seguir artistas y feed "Siguiendo".
 - ❤️ Likes y búsqueda de canciones y artistas.
-- 💳 Solicitud de plan Pro/Legend con instrucciones de pago manual; el admin aprueba o rechaza.
+- 💳 Solicitud de plan Pro/Legend: instrucciones de pago con Muni Dinero + subida de la foto del recibo; el admin ve el recibo y aprueba o rechaza.
 - 🛠️ Panel de administración: estadísticas, gestión de planes de usuarios, revisión de solicitudes y configuración (precios, límite de subidas, instrucciones de pago, nombre del sitio).
 
 ## Tecnologías

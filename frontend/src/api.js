@@ -52,9 +52,9 @@ export const likeTrack        = id         => post(`/tracks/${id}/like`)
 export const search           = q          => get(`/search?q=${encodeURIComponent(q)}`)
 
 // Subscription
-export const getSubInfo       = ()   => get('/subscription/info')
-export const getMySubRequest  = ()   => get('/subscription/my-request')
-export const requestSub       = body => post('/subscription/request', body)
+export const getSubInfo       = ()  => get('/subscription/info')
+export const getMySubRequest  = ()  => get('/subscription/my-request')
+export const requestSub       = fd  => postForm('/subscription/request', fd)
 
 // Admin
 export const adminStats        = ()           => get('/admin/stats')
@@ -62,6 +62,12 @@ export const adminUsers        = ()           => get('/admin/users')
 export const adminUpdateUser   = (id, body)   => patch(`/admin/users/${id}`, body)
 export const adminSubs         = (status='')  => get(`/admin/subscriptions?status=${status}`)
 export const adminReviewSub    = (id, body)   => post(`/admin/subscriptions/${id}/review`, body)
+export const adminReceiptUrl   = async id => {
+  // Receipt images require the admin token, so fetch as blob instead of <img src>
+  const r = await fetch(`${B}/admin/subscriptions/${id}/receipt`, { headers: authHeaders() })
+  if (!r.ok) throw new Error('No se pudo cargar el recibo')
+  return URL.createObjectURL(await r.blob())
+}
 export const adminGetSettings  = ()           => get('/admin/settings')
 export const adminSaveSettings = body         => patch('/admin/settings', body)
 
