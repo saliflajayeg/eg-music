@@ -414,9 +414,15 @@ if _STATIC.is_dir():
         file = (_STATIC / full_path).resolve()
         # Path-traversal guard: never serve anything outside dist/
         if full_path and file.is_file() and file.is_relative_to(_STATIC):
-            return FileResponse(str(file))
+            # Hashed assets never change -> cache forever; everything else revalidates
+            cache = 'public, max-age=31536000, immutable' if full_path.startswith('assets/') else 'no-cache'
+            return FileResponse(str(file), headers={'Cache-Control': cache})
+        # A missing hashed asset means the browser has a stale index.html:
+        # fail fast with 404 instead of feeding HTML to the module loader
+        if full_path.startswith('assets/'):
+            raise HTTPException(404)
         # Any other route (/register, /subscribe, ...) -> the React app
-        return FileResponse(str(_STATIC / "index.html"))
+        return FileResponse(str(_STATIC / "index.html"), headers={'Cache-Control': 'no-cache'})
 
 # ── Entry ──────────────────────────────────────────────────────────────────────
 
