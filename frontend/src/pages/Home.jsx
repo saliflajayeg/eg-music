@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { getFeed, getFollowingFeed } from '../api'
 import { useAuth } from '../context/AuthContext'
 import TrackCard from '../components/TrackCard'
@@ -26,6 +26,24 @@ export default function Home() {
     setTracks(t => t.filter(x => x.id !== id))
   }
 
+  // Group tracks by genre: biggest genres first, "Otros" always last
+  const sections = useMemo(() => {
+    const map = new Map()
+    for (const t of tracks) {
+      const key = (t.genre || '').trim().toLowerCase() || 'otros'
+      if (!map.has(key)) {
+        const raw = (t.genre || '').trim()
+        map.set(key, { key, name: raw ? raw[0].toUpperCase() + raw.slice(1) : 'Otros', tracks: [] })
+      }
+      map.get(key).tracks.push(t)
+    }
+    return [...map.values()].sort((a, b) => {
+      if (a.key === 'otros') return 1
+      if (b.key === 'otros') return -1
+      return b.tracks.length - a.tracks.length
+    })
+  }, [tracks])
+
   return (
     <div style={{padding:'24px 28px'}}>
       <div style={s.header}>
@@ -45,11 +63,21 @@ export default function Home() {
           </p>
         </div>
       ) : (
-        <div style={s.grid}>
-          {tracks.map(t => (
-            <TrackCard key={t.id} track={t} queue={tracks} onDelete={onDelete} />
-          ))}
-        </div>
+        sections.map(sec => (
+          <section key={sec.key} style={{marginBottom:30}}>
+            <h2 style={s.sectionTitle}>
+              {sec.name}
+              <span style={s.sectionCount}>
+                {sec.tracks.length} {sec.tracks.length === 1 ? 'canción' : 'canciones'}
+              </span>
+            </h2>
+            <div style={s.grid}>
+              {sec.tracks.map(t => (
+                <TrackCard key={t.id} track={t} queue={sec.tracks} onDelete={onDelete} />
+              ))}
+            </div>
+          </section>
+        ))
       )}
     </div>
   )
@@ -71,10 +99,16 @@ function TabBtn({ label, val, current, set }) {
 const s = {
   header: {display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, flexWrap:'wrap', gap:12},
   tabs: {display:'flex', gap:8},
+  sectionTitle: {
+    fontSize:17, fontWeight:700, marginBottom:12,
+    display:'flex', alignItems:'baseline', gap:10,
+    borderLeft:'3px solid var(--accent)', paddingLeft:10,
+  },
+  sectionCount: {fontSize:12, fontWeight:400, color:'var(--text3)'},
   grid: {
     display:'grid',
-    gridTemplateColumns:'repeat(auto-fill, minmax(190px, 1fr))',
-    gap:16,
+    gridTemplateColumns:'repeat(auto-fill, minmax(132px, 1fr))',
+    gap:12,
   },
   empty: {textAlign:'center', padding:'60px 0', color:'var(--text2)'},
 }

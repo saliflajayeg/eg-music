@@ -178,8 +178,8 @@ def toggle_follow(uid: int, user=Depends(require_user)):
 # ── Tracks ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/tracks")
-def get_feed(offset: int = 0, current=Depends(get_current_user)):
-    return db.get_feed(viewer_id=current['id'] if current else None, limit=40, offset=offset)
+def get_feed(offset: int = 0, limit: int = 40, current=Depends(get_current_user)):
+    return db.get_feed(viewer_id=current['id'] if current else None, limit=min(max(limit, 1), 100), offset=offset)
 
 @app.get("/api/tracks/following")
 def get_following_feed(user=Depends(require_user)):

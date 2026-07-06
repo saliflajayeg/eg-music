@@ -42,7 +42,7 @@ export const getUserTracks  = id  => get(`/users/${id}/tracks`)
 export const toggleFollow   = id  => post(`/users/${id}/follow`)
 
 // Tracks
-export const getFeed          = (offset=0) => get(`/tracks?offset=${offset}`)
+export const getFeed          = (offset=0, limit=100) => get(`/tracks?offset=${offset}&limit=${limit}`)
 export const getFollowingFeed = ()         => get('/tracks/following')
 export const getLikedTracks   = ()         => get('/tracks/liked')
 export const getTrack         = id         => get(`/tracks/${id}`)

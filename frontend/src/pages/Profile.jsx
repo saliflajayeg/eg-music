@@ -123,7 +123,7 @@ const s = {
   stats: {display:'flex',gap:24,marginTop:14},
   grid: {
     display:'grid',
-    gridTemplateColumns:'repeat(auto-fill, minmax(190px, 1fr))',
-    gap:16,
+    gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))',
+    gap:12,
   },
 }
