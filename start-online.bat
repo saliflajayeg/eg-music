@@ -31,7 +31,8 @@ echo  │    el sitio esta online mientras esten abiertas.        │
 echo  │  ⚠ La direccion CAMBIA cada vez que ejecutes esto.      │
 echo  └─────────────────────────────────────────────────────────┘
 echo.
-"%CLOUDFLARED%" tunnel --url http://localhost:8001
+if exist tunnel.log del tunnel.log
+"%CLOUDFLARED%" tunnel --url http://localhost:8001 --logfile tunnel.log
 
 echo.
 echo  El tunel se ha cerrado. El sitio ya no es accesible desde internet.
