@@ -40,12 +40,19 @@ Requisitos: **Python 3.11+** y **Node.js 18+**.
 ### Opción rápida (scripts incluidos)
 
 ```bat
-install.bat        :: crea el entorno virtual, instala dependencias y compila el frontend
-start.bat          :: arranca la app en http://localhost:8001 (local / LAN)
-start-online.bat   :: arranca la app Y la publica en internet con un túnel de Cloudflare
+install.bat          :: crea el entorno virtual, instala dependencias y compila el frontend
+start.bat            :: arranca la app en http://localhost:8001 (local / LAN)
+start-online.bat     :: arranca la app Y la publica en internet con un túnel de Cloudflare
+get-online-url.bat   :: ¿olvidaste la dirección pública actual? este script te la recuerda
 ```
 
-**Publicar en internet desde tu propio PC:** instala [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) y ejecuta `start-online.bat`. Te dará una dirección pública `https://….trycloudflare.com` que puedes compartir — no requiere cuenta ni tarjeta. La dirección cambia en cada arranque y el sitio solo está online mientras el PC esté encendido con las ventanas abiertas.
+**Publicar en internet desde tu propio PC:** instala [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) y ejecuta `start-online.bat`. Te dará una dirección pública `https://….trycloudflare.com`, la copiará automáticamente al portapapeles, y podrás pegarla donde quieras compartirla — no requiere cuenta ni tarjeta.
+
+⚠️ Dos cosas importantes de este modo gratuito:
+- La dirección **cambia cada vez que reinicias** el túnel. Si la olvidas, ejecuta `get-online-url.bat` para verla y copiarla de nuevo sin reiniciar nada.
+- El sitio solo está online mientras el PC esté encendido y las ventanas **"Servidor"** y **"Túnel público"** sigan abiertas.
+
+Para una dirección que nunca cambie, hace falta un dominio propio (~$9-10/año) conectado a Cloudflare — pregúntame cuando quieras dar ese paso.
 
 ### Manual
 

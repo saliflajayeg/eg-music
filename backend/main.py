@@ -1,4 +1,4 @@
-import os, sys, uuid, threading, time
+import os, sys, uuid, threading, time, socket
 from pathlib import Path
 from typing import Optional
 
@@ -426,11 +426,32 @@ if _STATIC.is_dir():
 
 # ── Entry ──────────────────────────────────────────────────────────────────────
 
+def _wait_for_server(host, port, timeout=20):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.3)
+    return False
+
 if __name__ == "__main__":
     PORT = 8001
+    # pythonw.exe (used by start.bat, no console window) leaves sys.stdout/stderr
+    # as None. uvicorn's logging then crashes the moment it tries to log a line,
+    # silently killing the server thread before it ever binds the port -> the
+    # browser opens to nothing and shows "page not found".
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
     t = threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info"), daemon=True)
     t.start()
-    time.sleep(1.2)
+    # Wait for the server to actually accept connections (fixed 1.2s sleep was
+    # too short on slow first-run startups, e.g. antivirus scanning venv exe),
+    # which opened the browser before the server was ready -> "page not found".
+    _wait_for_server("127.0.0.1", PORT)
     try:
         import webview
         webview.create_window("EG Music", f"http://127.0.0.1:{PORT}", width=1280, height=840)

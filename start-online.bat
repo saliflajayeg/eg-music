@@ -17,23 +17,40 @@ start "EG Music - Servidor (no cerrar)" venv\Scripts\python.exe -m uvicorn main:
 timeout /t 4 /nobreak > nul
 
 echo  [2/2] Creando el tunel publico de Cloudflare...
-echo.
-echo  ┌─────────────────────────────────────────────────────────┐
-echo  │  Busca abajo una direccion como:                        │
-echo  │      https://algo-algo-algo.trycloudflare.com           │
-echo  │                                                         │
-echo  │  ESA es la direccion publica de EG Music.               │
-echo  │  Compartela para que la gente entre, se registre        │
-echo  │  y suba su musica.                                      │
-echo  │                                                         │
-echo  │  ⚠ NO cierres esta ventana ni la del servidor:          │
-echo  │    el sitio esta online mientras esten abiertas.        │
-echo  │  ⚠ La direccion CAMBIA cada vez que ejecutes esto.      │
-echo  └─────────────────────────────────────────────────────────┘
-echo.
 if exist tunnel.log del tunnel.log
-"%CLOUDFLARED%" tunnel --url http://localhost:8001 --logfile tunnel.log
+start "EG Music - Tunel publico (no cerrar)" "%CLOUDFLARED%" tunnel --url http://localhost:8001 --logfile tunnel.log
+
+echo         Esperando la direccion publica...
+set "URL="
+for /l %%i in (1,1,30) do (
+    if not defined URL (
+        for /f "usebackq delims=" %%u in (`powershell -NoProfile -ExecutionPolicy Bypass -File "get-url.ps1"`) do set "URL=%%u"
+        if not defined URL timeout /t 1 /nobreak > nul
+    )
+)
+
+if not defined URL (
+    echo.
+    echo  [ERROR] No se detecto la direccion publica a tiempo.
+    echo          Revisa la ventana "Tunel publico" o el archivo tunnel.log
+    pause
+    exit /b 1
+)
+
+echo|set /p="%URL%" | clip
 
 echo.
-echo  El tunel se ha cerrado. El sitio ya no es accesible desde internet.
+echo  ═══════════════════════════════════════════════════════════
+echo   EG Music ya esta en linea:
+echo.
+echo    %URL%
+echo.
+echo   [Copiada al portapapeles - pega con Ctrl+V para compartirla]
+echo  ═══════════════════════════════════════════════════════════
+echo.
+echo  ⚠ NO cierres las ventanas "Servidor" ni "Tunel publico":
+echo    el sitio esta online mientras esten abiertas.
+echo  ⚠ Esta direccion CAMBIARA la proxima vez que reinicies.
+echo  ℹ ¿La olvidaste? Ejecuta get-online-url.bat en cualquier momento.
+echo.
 pause
