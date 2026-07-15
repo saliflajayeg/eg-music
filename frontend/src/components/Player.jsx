@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { usePlayer } from '../context/PlayerContext'
 import { trackCoverUrl, likeTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { useIsMobile } from '../hooks'
+import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00'
@@ -13,19 +15,31 @@ export default function Player() {
   const { currentTrack, isPlaying, currentTime, duration, volume,
           togglePlay, playNext, playPrev, seek, setVolume } = usePlayer()
   const { user } = useAuth()
+  const isMobile = useIsMobile()
   const [liked, setLiked] = React.useState(false)
+  const [dl, setDl] = React.useState('none') // 'none' | 'busy' | 'done'
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0
 
   React.useEffect(() => {
     if (currentTrack) setLiked(!!currentTrack.liked_by_me)
+    if (currentTrack && isNative()) isDownloaded(currentTrack.id).then(d => setDl(d ? 'done' : 'none'))
+    else setDl('none')
   }, [currentTrack?.id])
 
   async function handleLike() {
     if (!user || !currentTrack) return
-    try {
-      const r = await likeTrack(currentTrack.id)
-      setLiked(r.liked)
-    } catch {}
+    try { const r = await likeTrack(currentTrack.id); setLiked(r.liked) } catch {}
+  }
+
+  async function handleDownload() {
+    if (!currentTrack || dl === 'busy') return
+    if (dl === 'done') {
+      if (!confirm('¿Quitar de descargas?')) return
+      await deleteDownload(currentTrack.id); setDl('none'); return
+    }
+    setDl('busy')
+    try { await downloadMedia(currentTrack); setDl('done') }
+    catch (err) { setDl('none'); alert(err.message) }
   }
 
   function onSeekClick(e) {
@@ -39,9 +53,50 @@ export default function Player() {
     </div>
   )
 
+  const dlBtn = isNative() && (
+    <button onClick={handleDownload} style={s.iconBtn}
+      title={dl === 'done' ? 'Descargado' : 'Descargar'}>
+      {dl === 'busy'
+        ? <span style={{fontSize:14}}>⏳</span>
+        : <IcoDownload done={dl === 'done'} />}
+    </button>
+  )
+  const likeBtn = user && (
+    <button onClick={handleLike} style={{...s.iconBtn, color: liked ? 'var(--danger)' : 'var(--text3)', fontSize:18}}>
+      {liked ? '♥' : '♡'}
+    </button>
+  )
+
+  // ── Phone: progress line across the top, one tidy row of controls ──
+  if (isMobile) {
+    return (
+      <div style={s.rootMobile}>
+        <div style={s.topProgress} onClick={onSeekClick}>
+          <div style={{...s.trackFill, width:`${pct}%`}} />
+        </div>
+        <div style={s.mobileRow}>
+          <TrackCover track={currentTrack} size={42} />
+          <div style={{minWidth:0, flex:1}}>
+            <div style={s.title}>{currentTrack.title}</div>
+            <Link to={`/user/${currentTrack.user_id}`} style={s.artist}>
+              {currentTrack.display_name || currentTrack.username}
+            </Link>
+          </div>
+          {dlBtn}
+          {likeBtn}
+          <button onClick={playPrev} style={s.iconBtn}><IcoPrev /></button>
+          <button onClick={togglePlay} style={s.playBtn}>
+            {isPlaying ? <IcoPause /> : <IcoPlay />}
+          </button>
+          <button onClick={playNext} style={s.iconBtn}><IcoNext /></button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Desktop: three columns ──
   return (
     <div style={s.root}>
-      {/* Left: track info */}
       <div style={s.left}>
         <TrackCover track={currentTrack} size={48} />
         <div style={{minWidth:0}}>
@@ -50,21 +105,17 @@ export default function Player() {
             {currentTrack.display_name || currentTrack.username}
           </Link>
         </div>
-        {user && (
-          <button onClick={handleLike} style={{...s.heartBtn, color: liked ? 'var(--danger)' : 'var(--text3)'}}>
-            {liked ? '♥' : '♡'}
-          </button>
-        )}
+        {dlBtn}
+        {likeBtn}
       </div>
 
-      {/* Center: controls */}
       <div style={s.center}>
         <div style={s.controls}>
-          <Btn onClick={playPrev}><IcoPrev /></Btn>
+          <button onClick={playPrev} style={s.iconBtn}><IcoPrev /></button>
           <button onClick={togglePlay} style={s.playBtn}>
             {isPlaying ? <IcoPause /> : <IcoPlay />}
           </button>
-          <Btn onClick={playNext}><IcoNext /></Btn>
+          <button onClick={playNext} style={s.iconBtn}><IcoNext /></button>
         </div>
         <div style={s.progressRow}>
           <span style={s.time}>{fmt(currentTime)}</span>
@@ -75,12 +126,11 @@ export default function Player() {
         </div>
       </div>
 
-      {/* Right: volume */}
       <div style={s.right}>
         <IcoVol />
         <input type="range" min={0} max={1} step={0.02} value={volume}
           onChange={e => setVolume(Number(e.target.value))}
-          style={{width:88, accentColor:'var(--accent)', cursor:'pointer'}} />
+          style={{width:64, accentColor:'var(--accent)', cursor:'pointer'}} />
       </div>
     </div>
   )
@@ -102,15 +152,20 @@ function TrackCover({ track, size }) {
     style={{width:size,height:size,flexShrink:0,borderRadius:6,objectFit:'cover'}} alt="" />
 }
 
-function Btn({onClick,children}) {
-  return <button onClick={onClick} style={{color:'var(--text2)',display:'flex',alignItems:'center',padding:6,borderRadius:'50%'}}>{children}</button>
-}
-
 const IcoPlay  = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
 const IcoPause = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-const IcoNext  = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-const IcoPrev  = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+const IcoNext  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+const IcoPrev  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
 const IcoVol   = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text3)"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+const IcoDownload = ({ done }) => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+    stroke={done ? 'var(--accent2)' : 'currentColor'} strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round">
+    {done
+      ? <><path d="M20 6 9 17l-5-5"/></>
+      : <><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></>}
+  </svg>
+)
 
 const s = {
   root: {
@@ -119,6 +174,19 @@ const s = {
     height:'var(--player-h)', background:'var(--bg2)',
     borderTop:'1px solid var(--border)',
   },
+  rootMobile: {
+    position:'relative',
+    height:'64px', background:'var(--bg2)',
+    borderTop:'1px solid var(--border)',
+  },
+  topProgress: {
+    position:'absolute', top:0, left:0, right:0, height:5,
+    background:'var(--bg4)', cursor:'pointer',
+  },
+  mobileRow: {
+    display:'flex', alignItems:'center', gap:6,
+    height:'100%', padding:'0 8px 0 10px',
+  },
   empty: {
     height:'var(--player-h)', display:'flex', alignItems:'center',
     justifyContent:'center', background:'var(--bg2)',
@@ -126,8 +194,9 @@ const s = {
   },
   left:   {display:'flex',alignItems:'center',gap:10,minWidth:0},
   title:  {fontSize:13,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},
-  artist: {fontSize:12,color:'var(--text2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},
-  heartBtn: {fontSize:18, padding:'0 4px', flexShrink:0, transition:'color .15s'},
+  artist: {fontSize:12,color:'var(--text2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'},
+
+  iconBtn: {color:'var(--text2)',display:'flex',alignItems:'center',justifyContent:'center',padding:5,flexShrink:0},
 
   center: {display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'0 16px'},
   controls: {display:'flex',alignItems:'center',gap:6},

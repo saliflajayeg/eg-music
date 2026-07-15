@@ -41,6 +41,13 @@ export async function downloadMedia(track) {
   if (!isNative()) throw new Error('Solo disponible en la app de Android')
   if (await isDownloaded(track.id)) return
   const path = `${DL_DIR}/track_${track.id}.${extOf(track.filename)}`
+  // downloadFile's own `recursive` doesn't reliably create the parent folder
+  // on Android (fails with ENOENT), so create it ourselves first.
+  try {
+    await Filesystem.mkdir({ path: DL_DIR, directory: Directory.Data, recursive: true })
+  } catch (e) {
+    // already exists -> fine; anything else will surface on the write below
+  }
   // `?dl=1` tells the backend not to count a play for the download itself.
   await Filesystem.downloadFile({
     url: trackStreamUrl(track.id) + '?dl=1',
