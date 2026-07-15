@@ -413,6 +413,20 @@ def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
         db.set_setting('site_name', body.site_name)
     return db.get_all_settings()
 
+# ── Android app download ────────────────────────────────────────────────────────
+
+APK_PATH = BASE_DIR.parent / 'dist-apk' / 'EG-Music.apk'
+
+@app.get("/download/eg-music.apk")
+def download_apk():
+    if not APK_PATH.exists():
+        raise HTTPException(404, "APK no disponible")
+    return FileResponse(
+        str(APK_PATH),
+        media_type='application/vnd.android.package-archive',
+        filename='EG-Music.apk',
+    )
+
 # ── Static frontend (SPA) ──────────────────────────────────────────────────────
 
 _STATIC = (BASE_DIR.parent / 'frontend' / 'dist').resolve()
