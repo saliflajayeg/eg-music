@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider }   from './context/AuthContext'
 import { PlayerProvider } from './context/PlayerContext'
+import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
 import Player    from './components/Player'
 import Home      from './pages/Home'
@@ -14,8 +15,12 @@ import Subscribe from './pages/Subscribe'
 import Admin     from './pages/Admin'
 import ChangePassword from './pages/ChangePassword'
 import Watch     from './pages/Watch'
+import Downloads from './pages/Downloads'
 
 export default function App() {
+  // Push any offline plays to the server on startup and when back online.
+  useEffect(() => { initOfflineSync() }, [])
+
   return (
     <AuthProvider>
       <PlayerProvider>
@@ -34,6 +39,7 @@ export default function App() {
               <Route path="/admin"     element={<Admin />} />
               <Route path="/user/:id"  element={<Profile />} />
               <Route path="/watch/:id" element={<Watch />} />
+              <Route path="/downloads" element={<Downloads />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>

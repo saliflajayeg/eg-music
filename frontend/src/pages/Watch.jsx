@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getTrack, trackStreamUrl, likeTrack, deleteTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { isNative, isDownloaded, downloadMedia, deleteDownload, localSrc, queuePlay } from '../offline'
 
 export default function Watch() {
   const { id } = useParams()
@@ -11,18 +12,45 @@ export default function Watch() {
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [src, setSrc]   = useState(null)   // resolved video source (local or stream)
+  const [dl, setDl]     = useState('none') // 'none' | 'busy' | 'done'
+  const localPlayed = useRef(false)
 
   useEffect(() => {
     setLoading(true)
+    localPlayed.current = false
     getTrack(Number(id))
-      .then(t => {
+      .then(async t => {
         setTrack(t)
         setLiked(!!t.liked_by_me)
         setLikeCount(t.like_count || 0)
+        // Prefer a downloaded copy; else stream from the server.
+        const local = await localSrc(t.id)
+        setSrc(local || trackStreamUrl(t.id))
+        if (isNative()) setDl(await isDownloaded(t.id) ? 'done' : 'none')
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [id])
+
+  // When watching a downloaded video, the server never sees it -> queue the view.
+  async function onPlay() {
+    if (!localPlayed.current && await isDownloaded(Number(id))) {
+      localPlayed.current = true
+      queuePlay(Number(id))
+    }
+  }
+
+  async function handleDownload() {
+    if (dl === 'busy') return
+    if (dl === 'done') {
+      if (!confirm('¿Quitar de descargas?')) return
+      await deleteDownload(track.id); setDl('none'); return
+    }
+    setDl('busy')
+    try { await downloadMedia(track); setDl('done') }
+    catch (err) { setDl('none'); alert(err.message) }
+  }
 
   async function handleLike() {
     if (!user) return
@@ -50,9 +78,10 @@ export default function Watch() {
     <div style={{padding:'20px 28px 32px',maxWidth:900,margin:'0 auto'}}>
       <video
         key={track.id}
-        src={trackStreamUrl(track.id)}
+        src={src || trackStreamUrl(track.id)}
         controls
         autoPlay
+        onPlay={onPlay}
         style={s.video}
       />
 
@@ -71,6 +100,11 @@ export default function Watch() {
             style={{...s.likeBtn, color: liked ? 'var(--danger)' : 'var(--text2)'}}>
             {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
           </button>
+          {isNative() && (
+            <button onClick={handleDownload} style={s.dlBtn}>
+              {dl === 'busy' ? '⏳ Descargando...' : dl === 'done' ? '✓ Descargado' : '⬇ Descargar'}
+            </button>
+          )}
           {user && (user.id === track.user_id || user.is_admin) && (
             <button onClick={handleDelete} style={s.deleteBtn}>Eliminar</button>
           )}
@@ -99,6 +133,7 @@ const s = {
   views: {fontSize:13,color:'var(--text3)',marginLeft:'auto'},
   actions: {display:'flex',alignItems:'center',gap:16,paddingTop:12,borderTop:'1px solid var(--border)'},
   likeBtn: {fontSize:16,fontWeight:600},
+  dlBtn: {fontSize:13,fontWeight:600,color:'var(--accent2)'},
   deleteBtn: {color:'var(--danger)',fontSize:13,fontWeight:600},
   description: {marginTop:16,color:'var(--text2)',fontSize:14,lineHeight:1.6,whiteSpace:'pre-wrap'},
 }

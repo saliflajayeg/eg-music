@@ -54,6 +54,9 @@ export const deleteTrack      = id         => del(`/tracks/${id}`)
 export const likeTrack        = id         => post(`/tracks/${id}/like`)
 export const search           = q          => get(`/search?q=${encodeURIComponent(q)}`)
 
+// Offline sync
+export const postPlayEvents   = body       => post('/sync/plays', body)
+
 // Subscription
 export const getSubInfo       = ()  => get('/subscription/info')
 export const getMySubRequest  = ()  => get('/subscription/my-request')

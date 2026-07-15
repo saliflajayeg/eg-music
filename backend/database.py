@@ -75,6 +75,17 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS play_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER NOT NULL,
+                track_id        INTEGER NOT NULL,
+                client_event_id TEXT UNIQUE NOT NULL,
+                occurred_at     TEXT,
+                synced_at       TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
+                FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT
@@ -236,6 +247,30 @@ class Database:
     def increment_plays(self, track_id):
         self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (track_id,))
         self.conn.commit()
+
+    def record_play_events(self, user_id, events):
+        """Apply offline play/view events idempotently. Each event has a
+        client-generated client_event_id; duplicates (retried syncs) are
+        ignored so play_count is never double-counted. Returns how many were
+        newly applied."""
+        applied = 0
+        for ev in events:
+            cid = (ev.get('client_event_id') or '').strip()
+            tid = ev.get('track_id')
+            if not cid or not tid:
+                continue
+            # Only count if this track exists and isn't already recorded.
+            if not self.conn.execute('SELECT 1 FROM tracks WHERE id=?', (tid,)).fetchone():
+                continue
+            cur = self.conn.execute(
+                'INSERT OR IGNORE INTO play_events (user_id, track_id, client_event_id, occurred_at) VALUES (?,?,?,?)',
+                (user_id, tid, cid, ev.get('played_at'))
+            )
+            if cur.rowcount:  # newly inserted -> count it once
+                self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (tid,))
+                applied += 1
+        self.conn.commit()
+        return applied
 
     # ── Likes ─────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { trackCoverUrl, likeTrack, deleteTrack } from '../api'
+import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
 
 export default function TrackCard({ track, queue, onDelete }) {
   const { playTrack, currentTrack, isPlaying } = usePlayer()
@@ -12,6 +13,23 @@ export default function TrackCard({ track, queue, onDelete }) {
   const [liked,     setLiked]     = useState(!!track.liked_by_me)
   const [likeCount, setLikeCount] = useState(track.like_count || 0)
   const [err,       setErr]       = useState(false)
+  const [dl,        setDl]        = useState('none') // 'none' | 'busy' | 'done'
+
+  useEffect(() => {
+    if (isNative()) isDownloaded(track.id).then(d => setDl(d ? 'done' : 'none'))
+  }, [track.id])
+
+  async function handleDownload(e) {
+    e.stopPropagation()
+    if (dl === 'busy') return
+    if (dl === 'done') {
+      if (!confirm('¿Quitar de descargas?')) return
+      await deleteDownload(track.id); setDl('none'); return
+    }
+    setDl('busy')
+    try { await downloadMedia(track); setDl('done') }
+    catch (err) { setDl('none'); alert(err.message) }
+  }
 
   const isActive = !isVideo && currentTrack?.id === track.id
 
@@ -93,9 +111,17 @@ export default function TrackCard({ track, queue, onDelete }) {
           style={{...s.likeBtn, color: liked ? 'var(--danger)' : 'var(--text3)'}}>
           {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
         </button>
-        {user && (user.id === track.user_id || user.is_admin) && (
-          <button onClick={handleDelete} style={s.deleteBtn} title="Eliminar">✕</button>
-        )}
+        <div style={{display:'flex', alignItems:'center', gap:6}}>
+          {isNative() && (
+            <button onClick={handleDownload} style={s.dlBtn}
+              title={dl === 'done' ? 'Descargado' : 'Descargar para escuchar sin conexión'}>
+              {dl === 'busy' ? '⏳' : dl === 'done' ? <span style={{color:'var(--accent2)'}}>✓⬇</span> : '⬇'}
+            </button>
+          )}
+          {user && (user.id === track.user_id || user.is_admin) && (
+            <button onClick={handleDelete} style={s.deleteBtn} title="Eliminar">✕</button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -140,5 +166,6 @@ const s = {
   meta: { display:'flex', gap:8, fontSize:10, color:'var(--text3)', marginTop:4 },
   actions: { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 10px 8px' },
   likeBtn: { fontSize:14, transition:'color .15s', fontWeight:600 },
+  dlBtn: { fontSize:13, color:'var(--text3)', padding:3, lineHeight:1 },
   deleteBtn: { color:'var(--text3)', fontSize:13, padding:3 },
 }

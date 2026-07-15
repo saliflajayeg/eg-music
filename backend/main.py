@@ -268,12 +268,15 @@ def delete_track(track_id: int, user=Depends(require_user)):
     return {"ok": True}
 
 @app.get("/api/tracks/{track_id}/stream")
-async def stream_track(track_id: int, request: Request):
+async def stream_track(track_id: int, request: Request, dl: int = 0):
     t = db.get_track(track_id)
     if not t: raise HTTPException(404)
     path = TRACKS_DIR / t['filename']
     if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
-    db.increment_plays(track_id)
+    # dl=1 => saving for offline; don't count that as a play. The play is
+    # counted later, when the downloaded file is actually played (via sync).
+    if not dl:
+        db.increment_plays(track_id)
     return _stream(path, request, _mime(t['filename'], MEDIA_MIME))
 
 @app.get("/api/tracks/{track_id}/cover")
@@ -288,6 +291,23 @@ def track_cover(track_id: int):
 def like_track(track_id: int, user=Depends(require_user)):
     liked, count = db.toggle_like(user['id'], track_id)
     return {"liked": liked, "like_count": count}
+
+# ── Offline play/view sync ──────────────────────────────────────────────────────
+
+class PlayEvent(BaseModel):
+    track_id: int
+    client_event_id: str
+    played_at: Optional[str] = None
+
+class SyncPlaysBody(BaseModel):
+    events: list[PlayEvent]
+
+@app.post("/api/sync/plays")
+def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
+    # Events played offline (from downloaded files) that the server never saw.
+    # Idempotent: dedupes on client_event_id so retries don't double-count.
+    applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
+    return {"applied": applied, "received": len(body.events)}
 
 # ── Avatars ────────────────────────────────────────────────────────────────────
 

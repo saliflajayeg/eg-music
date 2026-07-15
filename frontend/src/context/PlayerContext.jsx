@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useRef, useState, useEffect } from 'react'
 import { trackStreamUrl } from '../api'
+import { localSrc, queuePlay } from '../offline'
 
 const Ctx = createContext()
 
@@ -50,13 +51,21 @@ export function PlayerProvider({ children }) {
     }
   }, [])
 
-  function _load(q, idx) {
+  async function _load(q, idx) {
     const track = q[idx]
     const a = audio()
-    a.src = trackStreamUrl(track.id)
-    a.play().catch(() => {})
     setQueue([...q])
     setQueueIndex(idx)
+    // Prefer a downloaded copy (works offline). If we play from disk the
+    // server never sees it, so queue the play to sync later.
+    const local = await localSrc(track.id)
+    if (local) {
+      a.src = local
+      queuePlay(track.id)
+    } else {
+      a.src = trackStreamUrl(track.id)
+    }
+    a.play().catch(() => {})
   }
 
   function playTrack(track, tracks) {

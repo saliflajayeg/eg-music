@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useIsMobile } from '../hooks'
+import { isNative } from '../offline'
 import { avatarUrl } from '../api'
 
 export default function Navbar() {
@@ -39,6 +40,11 @@ export default function Navbar() {
                 <Link to={`/user/${user.id}`} style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   Mi perfil
                 </Link>
+                {isNative() && (
+                  <Link to="/downloads" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                    📥 Mis descargas
+                  </Link>
+                )}
                 <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   Cambiar contraseña
                 </Link>
