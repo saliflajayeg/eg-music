@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { usePlayer } from '../context/PlayerContext'
 import { trackCoverUrl, likeTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -15,10 +15,14 @@ export default function Player() {
   const { currentTrack, isPlaying, currentTime, duration, volume,
           togglePlay, playNext, playPrev, seek, setVolume } = usePlayer()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [liked, setLiked] = React.useState(false)
   const [dl, setDl] = React.useState('none') // 'none' | 'busy' | 'done'
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0
+  // Free plan can only play/pause — no skipping forward/back.
+  const canSkip = user ? !!user.can_skip : true
+  const skip = fn => canSkip ? fn() : navigate('/subscribe')
 
   React.useEffect(() => {
     if (currentTrack) setLiked(!!currentTrack.liked_by_me)
@@ -32,7 +36,9 @@ export default function Player() {
   }
 
   async function handleDownload() {
-    if (!currentTrack || dl === 'busy') return
+    if (!currentTrack) return
+    if (!user) { navigate('/login'); return }
+    if (dl === 'busy') return
     if (dl === 'done') {
       if (!confirm('¿Quitar de descargas?')) return
       await deleteDownload(currentTrack.id); setDl('none'); return
@@ -84,11 +90,13 @@ export default function Player() {
           </div>
           {dlBtn}
           {likeBtn}
-          <button onClick={playPrev} style={s.iconBtn}><IcoPrev /></button>
+          <button onClick={() => skip(playPrev)} style={{...s.skipBtn, opacity: canSkip ? 1 : .35}}
+            title={canSkip ? 'Anterior' : 'Mejora tu plan para saltar'}><IcoPrev /></button>
           <button onClick={togglePlay} style={s.playBtn}>
             {isPlaying ? <IcoPause /> : <IcoPlay />}
           </button>
-          <button onClick={playNext} style={s.iconBtn}><IcoNext /></button>
+          <button onClick={() => skip(playNext)} style={{...s.skipBtn, opacity: canSkip ? 1 : .35}}
+            title={canSkip ? 'Siguiente' : 'Mejora tu plan para saltar'}><IcoNext /></button>
         </div>
       </div>
     )
@@ -111,11 +119,13 @@ export default function Player() {
 
       <div style={s.center}>
         <div style={s.controls}>
-          <button onClick={playPrev} style={s.iconBtn}><IcoPrev /></button>
+          <button onClick={() => skip(playPrev)} style={{...s.skipBtn, opacity: canSkip ? 1 : .35}}
+            title={canSkip ? 'Anterior' : 'Mejora tu plan para saltar'}><IcoPrev /></button>
           <button onClick={togglePlay} style={s.playBtn}>
             {isPlaying ? <IcoPause /> : <IcoPlay />}
           </button>
-          <button onClick={playNext} style={s.iconBtn}><IcoNext /></button>
+          <button onClick={() => skip(playNext)} style={{...s.skipBtn, opacity: canSkip ? 1 : .35}}
+            title={canSkip ? 'Siguiente' : 'Mejora tu plan para saltar'}><IcoNext /></button>
         </div>
         <div style={s.progressRow}>
           <span style={s.time}>{fmt(currentTime)}</span>
@@ -152,10 +162,10 @@ function TrackCover({ track, size }) {
     style={{width:size,height:size,flexShrink:0,borderRadius:6,objectFit:'cover'}} alt="" />
 }
 
-const IcoPlay  = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-const IcoPause = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-const IcoNext  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-const IcoPrev  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+const IcoPlay  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5.5v13a1 1 0 0 0 1.53.85l10.5-6.5a1 1 0 0 0 0-1.7L8.53 4.65A1 1 0 0 0 7 5.5z"/></svg>
+const IcoPause = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.3"/><rect x="14" y="5" width="4" height="14" rx="1.3"/></svg>
+const IcoNext  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 5.6v12.8a1 1 0 0 0 1.54.84l8-6.4a1 1 0 0 0 0-1.68l-8-6.4A1 1 0 0 0 6.5 5.6z"/><rect x="17.4" y="5" width="2.4" height="14" rx="1.2"/></svg>
+const IcoPrev  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 5.6v12.8a1 1 0 0 1-1.54.84l-8-6.4a1 1 0 0 1 0-1.68l8-6.4A1 1 0 0 1 17.5 5.6z"/><rect x="4.2" y="5" width="2.4" height="14" rx="1.2"/></svg>
 const IcoVol   = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text3)"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
 const IcoDownload = ({ done }) => (
   <svg width="19" height="19" viewBox="0 0 24 24" fill="none"
@@ -197,13 +207,15 @@ const s = {
   artist: {fontSize:12,color:'var(--text2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'},
 
   iconBtn: {color:'var(--text2)',display:'flex',alignItems:'center',justifyContent:'center',padding:5,flexShrink:0},
+  skipBtn: {color:'var(--accent2)',display:'flex',alignItems:'center',justifyContent:'center',padding:4,flexShrink:0,transition:'opacity .15s'},
 
   center: {display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'0 16px'},
-  controls: {display:'flex',alignItems:'center',gap:6},
+  controls: {display:'flex',alignItems:'center',gap:10},
   playBtn: {
-    width:36,height:36,borderRadius:'50%',
-    background:'var(--text)',color:'var(--bg)',
+    width:40,height:40,borderRadius:'50%',
+    background:'var(--accent)',color:'#fff',
     display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
+    boxShadow:'0 2px 8px rgba(var(--accent-rgb),.45)',
   },
   progressRow: {display:'flex',alignItems:'center',gap:8,width:'100%'},
   time: {fontSize:11,color:'var(--text3)',minWidth:34,textAlign:'center'},

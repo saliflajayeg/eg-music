@@ -15,35 +15,36 @@ export default function Upload() {
   const [error, setError] = useState('')
 
   if (!user) return <div style={s.center}><p>Inicia sesión primero.</p></div>
-  if (user.plan === 'free' && !user.is_admin) {
+  if (!user.can_upload) {
     return (
       <div style={s.center}>
         <div style={s.gate}>
           <div style={{fontSize:40,marginBottom:12}}>🎵</div>
-          <h2 style={{marginBottom:8}}>Plan Pro o Legend requerido</h2>
+          <h2 style={{marginBottom:8}}>Plan Pro o Premium requerido</h2>
           <p style={{color:'var(--text2)',marginBottom:20,textAlign:'center',maxWidth:320}}>
-            Para subir y compartir música necesitas el plan Pro o Legend.
+            Para subir y compartir tu música necesitas un plan de artista: Pro o Premium.
           </p>
           <button className="btn-primary" onClick={() => navigate('/subscribe')}>
-            Ver planes
+            Ver planes de artista
           </button>
         </div>
       </div>
     )
   }
-  const limitReached = user.plan === 'pro' && !user.is_admin && user.upload_limit != null && user.upload_count >= user.upload_limit
+  const limitReached = !user.is_admin && user.upload_limit != null && user.upload_count >= user.upload_limit
   if (limitReached) {
     return (
       <div style={s.center}>
         <div style={s.gate}>
           <div style={{fontSize:40,marginBottom:12}}>🏆</div>
-          <h2 style={{marginBottom:8}}>Límite de canciones alcanzado</h2>
+          <h2 style={{marginBottom:8}}>Límite mensual alcanzado</h2>
           <p style={{color:'var(--text2)',marginBottom:20,textAlign:'center',maxWidth:340}}>
-            Tu plan Pro permite hasta {user.upload_limit} canciones. Mejora a Legend para subidas ilimitadas.
+            Tu plan {user.plan === 'pro' ? 'Pro' : 'Premium'} permite {user.upload_limit} subidas al mes.
+            {user.plan === 'pro' ? ' Mejora a Premium para subir más.' : ' El límite se reinicia el mes que viene.'}
           </p>
-          <button className="btn-primary" onClick={() => navigate('/subscribe')}>
-            Mejorar a Legend
-          </button>
+          {user.plan === 'pro' && (
+            <button className="btn-primary" onClick={() => navigate('/subscribe')}>Mejorar a Premium</button>
+          )}
         </div>
       </div>
     )
@@ -85,10 +86,10 @@ export default function Upload() {
 
   return (
     <div style={{padding:'32px 28px',maxWidth:680,margin:'0 auto'}}>
-      <h1 style={{fontSize:22,fontWeight:700,marginBottom:user.plan==='pro'?4:24}}>Subir canción o video</h1>
-      {user.plan === 'pro' && user.upload_limit != null && (
+      <h1 style={{fontSize:22,fontWeight:700,marginBottom:user.upload_limit!=null?4:24}}>Subir canción o video</h1>
+      {user.upload_limit != null && (
         <p style={{color:'var(--text3)',fontSize:12,marginBottom:20}}>
-          {user.upload_count}/{user.upload_limit} subidas usadas de tu plan Pro
+          {user.upload_count}/{user.upload_limit} subidas usadas este mes
         </p>
       )}
       {error && <div style={s.error}>{error}</div>}

@@ -21,6 +21,7 @@ export default function TrackCard({ track, queue, onDelete }) {
 
   async function handleDownload(e) {
     e.stopPropagation()
+    if (!user) { navigate('/login'); return }
     if (dl === 'busy') return
     if (dl === 'done') {
       if (!confirm('¿Quitar de descargas?')) return

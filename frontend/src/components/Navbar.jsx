@@ -30,7 +30,7 @@ export default function Navbar() {
     <div style={s.right}>
       {user ? (
         <>
-          {user.plan !== 'free' && (
+          {user.can_upload && (
             <Link to="/upload" style={s.uploadBtn}>+ Subir</Link>
           )}
           <div style={s.avatarWrap} onClick={() => setMenuOpen(m => !m)}>
@@ -48,9 +48,9 @@ export default function Navbar() {
                 <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   Cambiar contraseña
                 </Link>
-                {user.plan !== 'legend' && (
+                {user.plan !== 'premium' && (
                   <Link to="/subscribe" style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                    ✦ {user.plan === 'free' ? 'Suscribirse' : 'Mejorar plan'}
+                    ✦ {user.plan === 'free' ? 'Ver planes' : 'Mejorar plan'}
                   </Link>
                 )}
                 {user.is_admin && (

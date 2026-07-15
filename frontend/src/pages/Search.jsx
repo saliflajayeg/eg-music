@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { search } from '../api'
 import TrackCard from '../components/TrackCard'
 import { Avatar } from '../components/Navbar'
+import { PLAN_BADGE } from '../plans'
 
 export default function Search() {
   const [params] = useSearchParams()
@@ -46,8 +47,7 @@ export default function Search() {
                       <div style={{fontWeight:600,fontSize:14}}>{u.display_name || u.username}</div>
                       <div style={{fontSize:12,color:'var(--text3)'}}>@{u.username} · {u.track_count} canciones</div>
                     </div>
-                    {u.plan === 'pro'    && <span className="badge-plan-pro" style={{marginLeft:'auto'}}>PRO</span>}
-                    {u.plan === 'legend' && <span className="badge-plan-legend" style={{marginLeft:'auto'}}>LEGEND</span>}
+                    {PLAN_BADGE[u.plan] && <span className={PLAN_BADGE[u.plan].cls} style={{marginLeft:'auto'}}>{PLAN_BADGE[u.plan].text}</span>}
                   </Link>
                 ))}
               </div>

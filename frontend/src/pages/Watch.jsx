@@ -42,6 +42,7 @@ export default function Watch() {
   }
 
   async function handleDownload() {
+    if (!user) { navigate('/login'); return }
     if (dl === 'busy') return
     if (dl === 'done') {
       if (!confirm('¿Quitar de descargas?')) return

@@ -19,7 +19,9 @@ async function req(method, path, body, isForm = false) {
   const r = await fetch(B + path, opts)
   if (!r.ok) {
     const err = await r.json().catch(() => ({ detail: r.statusText }))
-    throw new Error(err.detail || 'Error del servidor')
+    const e = new Error(err.detail || 'Error del servidor')
+    e.status = r.status   // lets callers distinguish e.g. 401 from a network drop
+    throw e
   }
   if (r.status === 204) return null
   return r.json()
@@ -56,6 +58,8 @@ export const search           = q          => get(`/search?q=${encodeURIComponen
 
 // Offline sync
 export const postPlayEvents   = body       => post('/sync/plays', body)
+// Downloads (plan-limited; call before saving a track offline)
+export const registerDownload = id         => post(`/downloads/${id}`)
 
 // Subscription
 export const getSubInfo       = ()  => get('/subscription/info')

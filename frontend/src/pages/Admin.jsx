@@ -27,9 +27,9 @@ export default function Admin() {
       {stats && (
         <div style={s.statsRow}>
           {[['Usuarios',stats.users,'var(--accent)'],['Canciones',stats.tracks,'var(--accent)'],
-            ['Reproducciones',stats.plays,'var(--accent)'],['Pro',stats.pro_users,'var(--blue)'],
-            ['Legend',stats.legend_users,'var(--gold)'],
-            ['Suscripciones pendientes',stats.pending_subscriptions,'var(--danger)']].map(([l,v,c]) => (
+            ['Reproducciones',stats.plays,'var(--accent)'],['Amante',stats.amante_users,'#8b5cf6'],
+            ['Pro',stats.pro_users,'var(--blue)'],['Premium',stats.premium_users,'var(--gold)'],
+            ['Pendientes',stats.pending_subscriptions,'var(--danger)']].map(([l,v,c]) => (
             <div key={l} style={s.statCard}>
               <div style={{fontSize:26,fontWeight:800,color:c}}>{v}</div>
               <div style={{fontSize:12,color:'var(--text3)'}}>{l}</div>
@@ -101,7 +101,7 @@ function SubsPanel({ onRefresh }) {
               <div style={{flex:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                   <div style={{fontWeight:600}}>{r.display_name || r.username}</div>
-                  <span className={r.plan === 'legend' ? 'badge-plan-legend' : 'badge-plan-pro'}>
+                  <span className={PLAN_BADGE[r.plan] || 'badge-plan-pro'}>
                     {(r.plan || 'pro').toUpperCase()}
                   </span>
                 </div>
@@ -164,8 +164,8 @@ function ReceiptViewer({ reqId }) {
   )
 }
 
-const PLANS = ['free', 'pro', 'legend']
-const PLAN_BADGE = { pro: 'badge-plan-pro', legend: 'badge-plan-legend' }
+const PLANS = ['free', 'amante', 'pro', 'premium']
+const PLAN_BADGE = { amante: 'badge-plan-amante', pro: 'badge-plan-pro', premium: 'badge-plan-premium' }
 
 function UsersPanel() {
   const [users, setUsers] = useState([])
@@ -245,18 +245,37 @@ function SettingsPanel() {
       <label style={s.label}>Nombre de la plataforma
         <input className="input" style={{marginTop:6}} value={cfg.site_name||''} onChange={e => setCfg({...cfg,site_name:e.target.value})} />
       </label>
-      <div style={{display:'flex',gap:14}}>
-        <label style={{...s.label,flex:1}}>Precio plan Pro
+      <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+        <label style={{...s.label,flex:1,minWidth:150}}>Precio Amante
+          <input className="input" style={{marginTop:6}} value={cfg.amante_price||''} onChange={e => setCfg({...cfg,amante_price:e.target.value})} />
+        </label>
+        <label style={{...s.label,flex:1,minWidth:150}}>Precio Pro
           <input className="input" style={{marginTop:6}} value={cfg.pro_price||''} onChange={e => setCfg({...cfg,pro_price:e.target.value})} />
         </label>
-        <label style={{...s.label,flex:1}}>Precio plan Legend
-          <input className="input" style={{marginTop:6}} value={cfg.legend_price||''} onChange={e => setCfg({...cfg,legend_price:e.target.value})} />
+        <label style={{...s.label,flex:1,minWidth:150}}>Precio Premium
+          <input className="input" style={{marginTop:6}} value={cfg.premium_price||''} onChange={e => setCfg({...cfg,premium_price:e.target.value})} />
         </label>
       </div>
-      <label style={s.label}>Límite de canciones del plan Pro
-        <input className="input" type="number" min="1" style={{marginTop:6,maxWidth:160}}
-          value={cfg.pro_upload_limit||''} onChange={e => setCfg({...cfg,pro_upload_limit:e.target.value})} />
-      </label>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+        <label style={{...s.label,flex:1,minWidth:130}}>Descargas Gratis (total)
+          <input className="input" type="number" min="0" style={{marginTop:6}}
+            value={cfg.free_download_limit||''} onChange={e => setCfg({...cfg,free_download_limit:e.target.value})} />
+        </label>
+        <label style={{...s.label,flex:1,minWidth:130}}>Descargas Amante/Pro (mes)
+          <input className="input" type="number" min="0" style={{marginTop:6}}
+            value={cfg.paid_download_limit||''} onChange={e => setCfg({...cfg,paid_download_limit:e.target.value})} />
+        </label>
+      </div>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+        <label style={{...s.label,flex:1,minWidth:130}}>Subidas Pro (mes)
+          <input className="input" type="number" min="0" style={{marginTop:6}}
+            value={cfg.pro_upload_limit||''} onChange={e => setCfg({...cfg,pro_upload_limit:e.target.value})} />
+        </label>
+        <label style={{...s.label,flex:1,minWidth:130}}>Subidas Premium (mes)
+          <input className="input" type="number" min="0" style={{marginTop:6}}
+            value={cfg.premium_upload_limit||''} onChange={e => setCfg({...cfg,premium_upload_limit:e.target.value})} />
+        </label>
+      </div>
       <label style={s.label}>Instrucciones de pago
         <textarea className="input" rows={8} style={{marginTop:6,resize:'vertical'}}
           value={cfg.payment_instructions||''} onChange={e => setCfg({...cfg,payment_instructions:e.target.value})} />

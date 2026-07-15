@@ -19,7 +19,40 @@ from auth import (
 app = FastAPI(title="EG Music")
 db  = Database()
 
-PLANS = ('free', 'pro', 'legend')
+PLANS = ('free', 'amante', 'pro', 'premium')
+UPLOADER_PLANS = ('pro', 'premium')   # plans that may upload music/video
+
+def _plan_caps(u):
+    """Capabilities + limits for a user's plan. Admins bypass every limit.
+    Limit values come from admin-editable settings so they can be tuned live."""
+    plan  = u['plan']
+    admin = bool(u['is_admin'])
+
+    can_skip   = admin or plan != 'free'          # free = play/pause only
+    can_upload = admin or plan in UPLOADER_PLANS
+
+    # Uploads are counted per calendar month.
+    if admin:                upload_limit = None   # unlimited
+    elif plan == 'pro':      upload_limit = int(db.get_setting('pro_upload_limit') or 8)
+    elif plan == 'premium':  upload_limit = int(db.get_setting('premium_upload_limit') or 15)
+    else:                    upload_limit = 0
+    upload_count = db.count_uploads_this_month(u['id'])
+
+    # Downloads: free = a few total (lifetime); amante/pro = monthly; premium = unlimited.
+    if admin or plan == 'premium':
+        download_limit, download_period = None, 'unlimited'
+    elif plan == 'free':
+        download_limit, download_period = int(db.get_setting('free_download_limit') or 3), 'total'
+    else:  # amante, pro
+        download_limit, download_period = int(db.get_setting('paid_download_limit') or 30), 'month'
+    download_count = 0 if download_period == 'unlimited' else db.count_downloads(u['id'], download_period)
+
+    return {
+        'can_skip': can_skip, 'can_upload': can_upload,
+        'upload_limit': upload_limit, 'upload_count': upload_count,
+        'download_limit': download_limit, 'download_count': download_count,
+        'download_period': download_period,
+    }
 
 BASE_DIR     = Path(__file__).parent
 UPLOADS_DIR  = BASE_DIR / "uploads"
@@ -103,7 +136,7 @@ def register(body: RegisterBody):
     uid = db.create_user(body.username, body.email, hash_password(body.password), body.display_name)
     # First user becomes admin with the top plan
     if uid == 1:
-        db.update_user(uid, is_admin=1, plan='legend')
+        db.update_user(uid, is_admin=1, plan='premium')
     user = db.get_user_by_id(uid)
     return {"token": create_token(uid), "user": _safe_user(user)}
 
@@ -133,8 +166,7 @@ def change_password(body: ChangePasswordBody, user=Depends(require_user)):
 
 def _safe_user(u):
     d = {k: u[k] for k in ('id','username','email','display_name','bio','avatar','plan','is_admin','created_at')}
-    d['upload_count'] = db.count_user_tracks(u['id'])
-    d['upload_limit'] = int(db.get_setting('pro_upload_limit') or 15) if u['plan'] == 'pro' else None
+    d.update(_plan_caps(u))
     return d
 
 # ── Users ──────────────────────────────────────────────────────────────────────
@@ -218,10 +250,12 @@ async def upload_track(
     else:
         raise HTTPException(400, f"Formato no soportado: {ext}")
 
-    if user['plan'] == 'pro' and not user['is_admin']:
-        limit = int(db.get_setting('pro_upload_limit') or 15)
-        if db.count_user_tracks(user['id']) >= limit:
-            raise HTTPException(403, f"Has alcanzado el límite de {limit} canciones de tu plan Pro. Mejora a Legend para subidas ilimitadas.")
+    if not user['is_admin']:
+        caps = _plan_caps(user)
+        limit = caps['upload_limit']
+        if limit is not None and caps['upload_count'] >= limit:
+            nxt = 'Premium' if user['plan'] == 'pro' else 'un plan superior'
+            raise HTTPException(403, f"Has alcanzado tu límite de {limit} subidas este mes. Mejora a {nxt} para subir más.")
 
     audio_fname = f"track_{user['id']}_{uuid.uuid4().hex}{ext}"
     audio_data  = await audio.read()
@@ -309,6 +343,30 @@ def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
     applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
     return {"applied": applied, "received": len(body.events)}
 
+# ── Downloads (plan-limited) ────────────────────────────────────────────────────
+
+@app.post("/api/downloads/{track_id}")
+def register_download(track_id: int, user=Depends(require_user)):
+    """Called by the app BEFORE it saves a track offline. Enforces the plan's
+    download allowance. Re-downloading a track you already have is free."""
+    t = db.get_track(track_id)
+    if not t:
+        raise HTTPException(404)
+    if db.has_downloaded(user['id'], track_id):
+        return {"ok": True, "already": True}
+    caps = _plan_caps(user)
+    limit, period = caps['download_limit'], caps['download_period']
+    if limit is not None and caps['download_count'] >= limit:
+        if period == 'total':
+            msg = (f"Tu plan Gratis permite {limit} descargas. "
+                   f"Mejora a Amante de la música para descargar más.")
+        else:
+            msg = (f"Has alcanzado tu límite de {limit} descargas este mes. "
+                   f"Mejora a Premium para descargas ilimitadas.")
+        raise HTTPException(403, msg)
+    db.record_download(user['id'], track_id)
+    return {"ok": True}
+
 # ── Avatars ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/avatars/{fname}")
@@ -329,10 +387,14 @@ def search(q: str = ''):
 @app.get("/api/subscription/info")
 def sub_info():
     return {
-        'instructions':     db.get_setting('payment_instructions'),
-        'pro_price':        db.get_setting('pro_price'),
-        'legend_price':     db.get_setting('legend_price'),
-        'pro_upload_limit': db.get_setting('pro_upload_limit'),
+        'instructions':         db.get_setting('payment_instructions'),
+        'amante_price':         db.get_setting('amante_price'),
+        'pro_price':            db.get_setting('pro_price'),
+        'premium_price':        db.get_setting('premium_price'),
+        'free_download_limit':  db.get_setting('free_download_limit'),
+        'paid_download_limit':  db.get_setting('paid_download_limit'),
+        'pro_upload_limit':     db.get_setting('pro_upload_limit'),
+        'premium_upload_limit': db.get_setting('premium_upload_limit'),
     }
 
 @app.get("/api/subscription/my-request")
@@ -346,7 +408,7 @@ async def request_subscription(
     receipt: UploadFile = File(...),
     user=Depends(require_user),
 ):
-    if plan not in ('pro', 'legend'):
+    if plan not in ('amante', 'pro', 'premium'):
         raise HTTPException(400, "Plan inválido")
     if user['plan'] == plan:
         raise HTTPException(400, f"Ya tienes el plan {plan}")
@@ -370,9 +432,13 @@ class AdminUserUpdate(BaseModel):
 
 class SettingsBody(BaseModel):
     payment_instructions: Optional[str] = None
+    amante_price: Optional[str] = None
     pro_price: Optional[str] = None
-    legend_price: Optional[str] = None
+    premium_price: Optional[str] = None
+    free_download_limit: Optional[str] = None
+    paid_download_limit: Optional[str] = None
     pro_upload_limit: Optional[str] = None
+    premium_upload_limit: Optional[str] = None
     site_name: Optional[str] = None
 
 @app.get("/api/admin/stats")
@@ -421,16 +487,12 @@ def admin_get_settings(user=Depends(require_admin)):
 
 @app.patch("/api/admin/settings")
 def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
-    if body.payment_instructions is not None:
-        db.set_setting('payment_instructions', body.payment_instructions)
-    if body.pro_price is not None:
-        db.set_setting('pro_price', body.pro_price)
-    if body.legend_price is not None:
-        db.set_setting('legend_price', body.legend_price)
-    if body.pro_upload_limit is not None:
-        db.set_setting('pro_upload_limit', body.pro_upload_limit)
-    if body.site_name is not None:
-        db.set_setting('site_name', body.site_name)
+    for key in ('payment_instructions', 'amante_price', 'pro_price', 'premium_price',
+                'free_download_limit', 'paid_download_limit',
+                'pro_upload_limit', 'premium_upload_limit', 'site_name'):
+        val = getattr(body, key)
+        if val is not None:
+            db.set_setting(key, val)
     return db.get_all_settings()
 
 # ── Android app download ────────────────────────────────────────────────────────

@@ -10,6 +10,8 @@ __pycache__/
 *.db-shm
 *.db-wal
 *.sqlite3
+*.db.bak-*
+*.bak-*
 
 # ─────────── User uploads (runtime data) ───────────
 # Keep the folder structure, ignore the uploaded files themselves.

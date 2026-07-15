@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { getUser, getUserTracks, toggleFollow } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Avatar } from '../components/Navbar'
+import { PLAN_BADGE } from '../plans'
 import TrackCard from '../components/TrackCard'
 
 export default function Profile() {
@@ -52,8 +53,7 @@ export default function Profile() {
         <div style={s.headerInfo}>
           <div style={s.nameRow}>
             <h1 style={{fontSize:24,fontWeight:700}}>{profile.display_name || profile.username}</h1>
-            {profile.plan === 'pro'    && <span className="badge-plan-pro">PRO</span>}
-            {profile.plan === 'legend' && <span className="badge-plan-legend">LEGEND</span>}
+            {PLAN_BADGE[profile.plan] && <span className={PLAN_BADGE[profile.plan].cls}>{PLAN_BADGE[profile.plan].text}</span>}
             {profile.is_admin          && <span className="badge-admin">ADMIN</span>}
           </div>
           <p style={{color:'var(--text3)',fontSize:13}}>@{profile.username}</p>

@@ -26,7 +26,9 @@ def _load_secret_key():
 
 SECRET_KEY = _load_secret_key()
 ALGORITHM  = "HS256"
-TOKEN_EXPIRE_DAYS = 30
+# Effectively never expires — users stay logged in until they log out
+# themselves (important for the mobile app + spotty connectivity).
+TOKEN_EXPIRE_DAYS = 3650
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -74,8 +76,8 @@ def require_user(user=Depends(get_current_user)):
     return user
 
 def require_uploader(user=Depends(require_user)):
-    if user['plan'] not in ('pro', 'legend') and not user['is_admin']:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Necesitas el plan Pro o Legend para subir música")
+    if user['plan'] not in ('pro', 'premium') and not user['is_admin']:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Necesitas el plan Pro o Premium para subir música")
     return user
 
 def require_admin(user=Depends(require_user)):

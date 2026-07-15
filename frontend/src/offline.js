@@ -6,7 +6,7 @@ import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import { Network } from '@capacitor/network'
 import { Preferences } from '@capacitor/preferences'
-import { trackStreamUrl, postPlayEvents } from './api'
+import { trackStreamUrl, postPlayEvents, registerDownload } from './api'
 
 export const isNative = () => Capacitor.isNativePlatform()
 
@@ -40,6 +40,10 @@ function extOf(filename) {
 export async function downloadMedia(track) {
   if (!isNative()) throw new Error('Solo disponible en la app de Android')
   if (await isDownloaded(track.id)) return
+  // Check the plan's download allowance first (also requires being logged in).
+  // Throws with the server's message (limit reached / not signed in) — we let
+  // it propagate so the button can show it, and we don't save the file.
+  await registerDownload(track.id)
   const path = `${DL_DIR}/track_${track.id}.${extOf(track.filename)}`
   // downloadFile's own `recursive` doesn't reliably create the parent folder
   // on Android (fails with ENOENT), so create it ourselves first.

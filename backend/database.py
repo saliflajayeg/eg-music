@@ -86,6 +86,15 @@ class Database:
                 FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS downloads (
+                user_id    INTEGER NOT NULL,
+                track_id   INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, track_id),
+                FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
+                FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT
@@ -126,6 +135,22 @@ class Database:
             self.set_setting('site_name', 'EG Music')
         if self.get_setting('subscription_price') is not None and self.get_setting('pro_price') is None:
             self.set_setting('pro_price', self.get_setting('subscription_price'))
+
+        # ── Plan model v2 (2026-07-15): 4 plans free/amante/pro/premium ──
+        # Old model was free/pro/legend. Map the top artist tier legend→premium;
+        # pro stays pro; free stays free. Runs once (guarded by a flag) so the
+        # admin's later price/limit edits are never stomped.
+        if self.get_setting('plan_model_v2') is None:
+            self.conn.execute("UPDATE users SET plan='premium' WHERE plan='legend'")
+            self.conn.execute("UPDATE subscription_requests SET plan='premium' WHERE plan='legend'")
+            self.set_setting('amante_price',   '2.000 XAF / mes')
+            self.set_setting('pro_price',      '9.000 XAF / mes')
+            self.set_setting('premium_price',  '14.000 XAF / mes')
+            self.set_setting('free_download_limit', '3')    # total (lifetime) for Gratis
+            self.set_setting('paid_download_limit', '30')   # per month for Amante & Pro
+            self.set_setting('pro_upload_limit',     '8')   # per month
+            self.set_setting('premium_upload_limit', '15')  # per month
+            self.set_setting('plan_model_v2', '1')
 
     # ── Users ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +195,33 @@ class Database:
 
     def count_user_tracks(self, user_id):
         return self.conn.execute('SELECT COUNT(*) FROM tracks WHERE user_id=?', (user_id,)).fetchone()[0]
+
+    def count_uploads_this_month(self, user_id):
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM tracks WHERE user_id=? AND created_at >= strftime('%Y-%m-01 00:00:00','now')",
+            (user_id,)
+        ).fetchone()[0]
+
+    # ── Downloads (limit tracking) ──────────────────────────────────────────────
+
+    def has_downloaded(self, user_id, track_id):
+        return bool(self.conn.execute(
+            'SELECT 1 FROM downloads WHERE user_id=? AND track_id=?', (user_id, track_id)
+        ).fetchone())
+
+    def count_downloads(self, user_id, period='total'):
+        if period == 'month':
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM downloads WHERE user_id=? AND created_at >= strftime('%Y-%m-01 00:00:00','now')",
+                (user_id,)
+            ).fetchone()[0]
+        return self.conn.execute('SELECT COUNT(*) FROM downloads WHERE user_id=?', (user_id,)).fetchone()[0]
+
+    def record_download(self, user_id, track_id):
+        self.conn.execute(
+            'INSERT OR IGNORE INTO downloads (user_id, track_id) VALUES (?,?)', (user_id, track_id)
+        )
+        self.conn.commit()
 
     def get_user_public(self, uid, viewer_id=None):
         r = self.conn.execute(
@@ -424,6 +476,7 @@ class Database:
             'pending_subscriptions': self.conn.execute(
                 "SELECT COUNT(*) FROM subscription_requests WHERE status='pending'"
             ).fetchone()[0],
-            'pro_users':    plan_counts.get('pro', 0),
-            'legend_users': plan_counts.get('legend', 0),
+            'amante_users':  plan_counts.get('amante', 0),
+            'pro_users':     plan_counts.get('pro', 0),
+            'premium_users': plan_counts.get('premium', 0),
         }
