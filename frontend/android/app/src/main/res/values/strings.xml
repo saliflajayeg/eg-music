@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EG Music</string>
+    <string name="title_activity_main">EG Music</string>
+    <string name="package_name">com.egmusic.app</string>
+    <string name="custom_url_scheme">com.egmusic.app</string>
+</resources>

@@ -1,4 +1,7 @@
-const B = '/api'
+// Web build (same origin as the backend): relative '/api' — unchanged behavior.
+// Android build (Capacitor, no origin to be relative to): VITE_API_URL must
+// point at the backend's public address. See .env.android.example.
+const B = (import.meta.env.VITE_API_URL || '') + '/api'
 
 function authHeaders() {
   const token = localStorage.getItem('token')

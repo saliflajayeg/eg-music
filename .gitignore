@@ -26,6 +26,19 @@ frontend/dist/
 .env.local
 .env.*.local
 backend/secret_key.txt
+frontend/.env.android
+
+# ─────────── Android (Capacitor native project) ───────────
+# The android/ project itself IS committed (Capacitor convention) — only
+# machine-specific build output and local SDK path are ignored.
+frontend/android/**/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/app/release/
+*.apk
+*.aab
+*.keystore
+*.jks
 
 # ─────────── Editor / OS cruft ───────────
 .vscode/
