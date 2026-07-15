@@ -56,7 +56,7 @@ export default function Search() {
 
           {results.tracks.length > 0 && (
             <section>
-              <h2 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Canciones</h2>
+              <h2 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Canciones y videos</h2>
               <div style={s.grid}>
                 {results.tracks.map(t => <TrackCard key={t.id} track={t} queue={results.tracks} />)}
               </div>

@@ -36,6 +36,7 @@ class Database:
                 description  TEXT DEFAULT '',
                 filename     TEXT NOT NULL,
                 cover        TEXT DEFAULT '',
+                media_type   TEXT DEFAULT 'audio',
                 duration     REAL DEFAULT 0,
                 play_count   INTEGER DEFAULT 0,
                 is_public    INTEGER DEFAULT 1,
@@ -99,6 +100,10 @@ class Database:
             self.conn.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'")
         if 'is_subscriber' in user_cols:
             self.conn.execute("UPDATE users SET plan='pro' WHERE is_subscriber=1 AND (plan IS NULL OR plan='free')")
+
+        track_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tracks)").fetchall()]
+        if 'media_type' not in track_cols:
+            self.conn.execute("ALTER TABLE tracks ADD COLUMN media_type TEXT DEFAULT 'audio'")
 
         req_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(subscription_requests)").fetchall()]
         if 'plan' not in req_cols:
@@ -181,11 +186,11 @@ class Database:
 
     # ── Tracks ────────────────────────────────────────────────────────────────
 
-    def create_track(self, user_id, title, artist, album, genre, description, filename, cover, duration):
+    def create_track(self, user_id, title, artist, album, genre, description, filename, cover, duration, media_type='audio'):
         cur = self.conn.execute('''
-            INSERT INTO tracks (user_id, title, artist, album, genre, description, filename, cover, duration)
-            VALUES (?,?,?,?,?,?,?,?,?)
-        ''', (user_id, title, artist, album, genre, description, filename, cover, duration))
+            INSERT INTO tracks (user_id, title, artist, album, genre, description, filename, cover, duration, media_type)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        ''', (user_id, title, artist, album, genre, description, filename, cover, duration, media_type))
         self.conn.commit()
         return cur.lastrowid
 

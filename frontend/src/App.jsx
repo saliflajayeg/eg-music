@@ -13,6 +13,7 @@ import Search    from './pages/Search'
 import Subscribe from './pages/Subscribe'
 import Admin     from './pages/Admin'
 import ChangePassword from './pages/ChangePassword'
+import Watch     from './pages/Watch'
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/password"  element={<ChangePassword />} />
               <Route path="/admin"     element={<Admin />} />
               <Route path="/user/:id"  element={<Profile />} />
+              <Route path="/watch/:id" element={<Watch />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { trackCoverUrl, likeTrack, deleteTrack } from '../api'
@@ -7,13 +7,16 @@ import { trackCoverUrl, likeTrack, deleteTrack } from '../api'
 export default function TrackCard({ track, queue, onDelete }) {
   const { playTrack, currentTrack, isPlaying } = usePlayer()
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const isVideo = track.media_type === 'video'
   const [liked,     setLiked]     = useState(!!track.liked_by_me)
   const [likeCount, setLikeCount] = useState(track.like_count || 0)
   const [err,       setErr]       = useState(false)
 
-  const isActive = currentTrack?.id === track.id
+  const isActive = !isVideo && currentTrack?.id === track.id
 
   function handlePlay() {
+    if (isVideo) { navigate(`/watch/${track.id}`); return }
     if (isActive) return
     playTrack(track, queue)
   }
@@ -53,13 +56,19 @@ export default function TrackCard({ track, queue, onDelete }) {
           <img src={trackCoverUrl(track.id)} onError={() => setErr(true)} style={s.cover} alt="" />
         ) : (
           <div style={{...s.cover, background:'var(--bg3)', display:'flex', alignItems:'center', justifyContent:'center'}}>
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="var(--text3)">
-              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-            </svg>
+            {isVideo ? (
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="var(--text3)">
+                <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/>
+              </svg>
+            ) : (
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="var(--text3)">
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+              </svg>
+            )}
           </div>
         )}
         <div style={{...s.playOverlay, opacity: isActive ? 1 : undefined}}>
-          {isActive && isPlaying
+          {isActive && isPlaying && !isVideo
             ? <IcoPause />
             : <IcoPlay />}
         </div>
@@ -74,7 +83,7 @@ export default function TrackCard({ track, queue, onDelete }) {
         {track.genre && <span style={s.genre}>{track.genre}</span>}
         <div style={s.meta}>
           <span>{fmt(track.duration)}</span>
-          <span>▶ {track.play_count}</span>
+          <span>{isVideo ? '👁' : '▶'} {track.play_count}</span>
         </div>
       </div>
 

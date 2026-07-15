@@ -85,11 +85,11 @@ export default function Profile() {
       {/* Tracks */}
       <div style={{padding:'0 28px 32px'}}>
         <h2 style={{fontSize:16,fontWeight:700,marginBottom:16}}>
-          Canciones <span style={{color:'var(--text3)',fontWeight:400}}>({tracks.length})</span>
+          Canciones y videos <span style={{color:'var(--text3)',fontWeight:400}}>({tracks.length})</span>
         </h2>
         {tracks.length === 0 ? (
           <p style={{color:'var(--text3)'}}>
-            {isMe ? 'Aún no has subido música.' : 'Este artista aún no ha publicado música.'}
+            {isMe ? 'Aún no has subido música ni videos.' : 'Este artista aún no ha publicado contenido.'}
           </p>
         ) : (
           <div style={s.grid}>

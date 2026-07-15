@@ -37,6 +37,10 @@ AUDIO_MIME = {
     '.mp3':'audio/mpeg', '.flac':'audio/flac', '.wav':'audio/wav',
     '.ogg':'audio/ogg',  '.m4a':'audio/mp4',  '.aac':'audio/aac',
 }
+VIDEO_MIME = {
+    '.mp4':'video/mp4', '.webm':'video/webm', '.mov':'video/quicktime',
+}
+MEDIA_MIME = {**AUDIO_MIME, **VIDEO_MIME}
 IMAGE_MIME = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp'}
 
 def _mime(path, table):
@@ -207,8 +211,12 @@ async def upload_track(
     user=Depends(require_uploader),
 ):
     ext = Path(audio.filename).suffix.lower()
-    if ext not in AUDIO_MIME:
-        raise HTTPException(400, f"Formato de audio no soportado: {ext}")
+    if ext in AUDIO_MIME:
+        media_type = 'audio'
+    elif ext in VIDEO_MIME:
+        media_type = 'video'
+    else:
+        raise HTTPException(400, f"Formato no soportado: {ext}")
 
     if user['plan'] == 'pro' and not user['is_admin']:
         limit = int(db.get_setting('pro_upload_limit') or 15)
@@ -219,14 +227,16 @@ async def upload_track(
     audio_data  = await audio.read()
     (TRACKS_DIR / audio_fname).write_bytes(audio_data)
 
-    # Duration via mutagen
+    # Duration via mutagen (audio only — mutagen doesn't read video containers
+    # reliably; the frontend reads video duration client-side from <video>)
     duration = 0.0
-    try:
-        from mutagen import File as MFile
-        m = MFile(str(TRACKS_DIR / audio_fname))
-        if m: duration = m.info.length
-    except Exception:
-        pass
+    if media_type == 'audio':
+        try:
+            from mutagen import File as MFile
+            m = MFile(str(TRACKS_DIR / audio_fname))
+            if m: duration = m.info.length
+        except Exception:
+            pass
 
     # Cover
     cover_fname = ''
@@ -238,7 +248,8 @@ async def upload_track(
 
     tid = db.create_track(
         user['id'], title.strip(), artist.strip(), album.strip(),
-        genre.strip(), description.strip(), audio_fname, cover_fname, duration
+        genre.strip(), description.strip(), audio_fname, cover_fname, duration,
+        media_type
     )
     return db.get_track(tid, viewer_id=user['id'])
 
@@ -263,7 +274,7 @@ async def stream_track(track_id: int, request: Request):
     path = TRACKS_DIR / t['filename']
     if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
     db.increment_plays(track_id)
-    return _stream(path, request, _mime(t['filename'], AUDIO_MIME))
+    return _stream(path, request, _mime(t['filename'], MEDIA_MIME))
 
 @app.get("/api/tracks/{track_id}/cover")
 def track_cover(track_id: int):

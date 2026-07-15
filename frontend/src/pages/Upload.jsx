@@ -7,7 +7,8 @@ export default function Upload() {
   const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({ title:'', artist: user?.display_name || '', album:'', genre:'', description:'' })
-  const [audioFile, setAudioFile] = useState(null)
+  const [mediaFile, setMediaFile] = useState(null)
+  const isVideo = mediaFile && /\.(mp4|webm|mov)$/i.test(mediaFile.name)
   const [coverFile, setCoverFile] = useState(null)
   const [coverPreview, setCoverPreview] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -58,7 +59,7 @@ export default function Upload() {
 
   async function submit(e) {
     e.preventDefault()
-    if (!audioFile) { setError('Selecciona un archivo de audio'); return }
+    if (!mediaFile) { setError('Selecciona un archivo de audio o video'); return }
     if (!form.title.trim()) { setError('El título es obligatorio'); return }
     setLoading(true); setError('')
     try {
@@ -68,7 +69,7 @@ export default function Upload() {
       fd.append('album',       form.album)
       fd.append('genre',       form.genre)
       fd.append('description', form.description)
-      fd.append('audio',       audioFile)
+      fd.append('audio',       mediaFile)
       if (coverFile) fd.append('cover', coverFile)
       const track = await uploadTrack(fd)
       await refreshUser()
@@ -84,10 +85,10 @@ export default function Upload() {
 
   return (
     <div style={{padding:'32px 28px',maxWidth:680,margin:'0 auto'}}>
-      <h1 style={{fontSize:22,fontWeight:700,marginBottom:user.plan==='pro'?4:24}}>Subir canción</h1>
+      <h1 style={{fontSize:22,fontWeight:700,marginBottom:user.plan==='pro'?4:24}}>Subir canción o video</h1>
       {user.plan === 'pro' && user.upload_limit != null && (
         <p style={{color:'var(--text3)',fontSize:12,marginBottom:20}}>
-          {user.upload_count}/{user.upload_limit} canciones usadas de tu plan Pro
+          {user.upload_count}/{user.upload_limit} subidas usadas de tu plan Pro
         </p>
       )}
       {error && <div style={s.error}>{error}</div>}
@@ -126,7 +127,7 @@ export default function Upload() {
           value={form.description} onChange={e => f('description', e.target.value)}
           style={{resize:'vertical'}} />
 
-        {/* Audio file */}
+        {/* Audio or video file */}
         <div style={s.fileBox}>
           <label style={s.fileLabel}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="var(--accent)">
@@ -134,17 +135,17 @@ export default function Upload() {
             </svg>
             <div>
               <div style={{fontWeight:600,fontSize:14}}>
-                {audioFile ? audioFile.name : 'Seleccionar archivo de audio'}
+                {mediaFile ? mediaFile.name : 'Seleccionar archivo de audio o video'}
               </div>
-              <div style={{fontSize:12,color:'var(--text3)'}}>MP3, FLAC, WAV, OGG, M4A</div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>MP3, FLAC, WAV, OGG, M4A · MP4, WEBM, MOV</div>
             </div>
-            <input type="file" accept=".mp3,.flac,.wav,.ogg,.m4a,.aac"
-              onChange={e => setAudioFile(e.target.files[0])} style={{display:'none'}} required />
+            <input type="file" accept=".mp3,.flac,.wav,.ogg,.m4a,.aac,.mp4,.webm,.mov"
+              onChange={e => setMediaFile(e.target.files[0])} style={{display:'none'}} required />
           </label>
         </div>
 
         <button className="btn-primary" type="submit" disabled={loading} style={{alignSelf:'flex-start',padding:'11px 28px'}}>
-          {loading ? 'Subiendo...' : 'Publicar canción'}
+          {loading ? 'Subiendo...' : isVideo ? 'Publicar video' : 'Publicar canción'}
         </button>
       </form>
     </div>
