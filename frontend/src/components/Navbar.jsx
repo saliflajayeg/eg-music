@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useIsMobile } from '../hooks'
 import { avatarUrl } from '../api'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const isMobile = useIsMobile()
 
   function handleLogout() {
     logout()
@@ -14,59 +16,76 @@ export default function Navbar() {
     navigate('/')
   }
 
+  const logo = (
+    <Link to="/" style={s.logo}>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--accent)">
+        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+      </svg>
+      <span style={s.logoText}>EG Music</span>
+    </Link>
+  )
+
+  const right = (
+    <div style={s.right}>
+      {user ? (
+        <>
+          {user.plan !== 'free' && (
+            <Link to="/upload" style={s.uploadBtn}>+ Subir</Link>
+          )}
+          <div style={s.avatarWrap} onClick={() => setMenuOpen(m => !m)}>
+            <Avatar user={user} size={34} />
+            {menuOpen && (
+              <div style={s.dropdown}>
+                <Link to={`/user/${user.id}`} style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                  Mi perfil
+                </Link>
+                <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                  Cambiar contraseña
+                </Link>
+                {user.plan !== 'legend' && (
+                  <Link to="/subscribe" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                    ✦ {user.plan === 'free' ? 'Suscribirse' : 'Mejorar plan'}
+                  </Link>
+                )}
+                {user.is_admin && (
+                  <Link to="/admin" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                    ⚙ Panel admin
+                  </Link>
+                )}
+                <div style={s.dropDivider} />
+                <button style={s.dropItem} onClick={handleLogout}>Cerrar sesión</button>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <Link to="/login"    style={s.loginBtn}>{isMobile ? 'Entrar' : 'Iniciar sesión'}</Link>
+          <Link to="/register" style={s.registerBtn}>Registrarse</Link>
+        </>
+      )}
+    </div>
+  )
+
+  // Phone: two rows — [logo | actions] on top, full-width search below.
+  if (isMobile) {
+    return (
+      <nav style={s.navMobile}>
+        <div style={s.navTopRow}>
+          {logo}
+          {right}
+        </div>
+        <SearchBar />
+      </nav>
+    )
+  }
+
+  // Desktop: single row.
   return (
     <nav style={s.nav}>
-      {/* Logo */}
-      <Link to="/" style={s.logo}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--accent)">
-          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-        </svg>
-        <span style={s.logoText}>EG Music</span>
-      </Link>
-
-      {/* Search bar */}
+      {logo}
       <SearchBar />
-
-      {/* Right side */}
-      <div style={s.right}>
-        {user ? (
-          <>
-            {user.plan !== 'free' && (
-              <Link to="/upload" style={s.uploadBtn}>+ Subir</Link>
-            )}
-            <div style={s.avatarWrap} onClick={() => setMenuOpen(m => !m)}>
-              <Avatar user={user} size={34} />
-              {menuOpen && (
-                <div style={s.dropdown}>
-                  <Link to={`/user/${user.id}`} style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                    Mi perfil
-                  </Link>
-                  <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                    Cambiar contraseña
-                  </Link>
-                  {user.plan !== 'legend' && (
-                    <Link to="/subscribe" style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                      ✦ {user.plan === 'free' ? 'Suscribirse' : 'Mejorar plan'}
-                    </Link>
-                  )}
-                  {user.is_admin && (
-                    <Link to="/admin" style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                      ⚙ Panel admin
-                    </Link>
-                  )}
-                  <div style={s.dropDivider} />
-                  <button style={s.dropItem} onClick={handleLogout}>Cerrar sesión</button>
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            <Link to="/login"    style={s.loginBtn}>Iniciar sesión</Link>
-            <Link to="/register" style={s.registerBtn}>Registrarse</Link>
-          </>
-        )}
-      </div>
+      {right}
     </nav>
   )
 }
@@ -117,6 +136,15 @@ const s = {
     background:'var(--bg2)', borderBottom:'1px solid var(--border)',
     position:'sticky', top:0, zIndex:100,
   },
+  navMobile: {
+    display:'flex', flexDirection:'column', gap:8,
+    padding:'8px 12px',
+    background:'var(--bg2)', borderBottom:'1px solid var(--border)',
+    position:'sticky', top:0, zIndex:100,
+  },
+  navTopRow: {
+    display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
+  },
   logo: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
   logoText: { fontSize:18, fontWeight:800, color:'var(--text)' },
   searchForm: {
@@ -124,6 +152,7 @@ const s = {
     display:'flex', alignItems:'center', gap:8,
     background:'var(--bg3)', borderRadius:8,
     padding:'7px 12px', border:'1px solid var(--border)',
+    minWidth:0,
   },
   searchInput: {
     flex:1, background:'transparent', border:'none', outline:'none',

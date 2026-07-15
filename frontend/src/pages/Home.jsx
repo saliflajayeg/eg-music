@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getFeed, getFollowingFeed } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { useIsMobile } from '../hooks'
 import TrackCard from '../components/TrackCard'
 
 export default function Home() {
   const { user } = useAuth()
+  const isMobile = useIsMobile()
   const [tab,    setTab]    = useState('all')
   const [tracks, setTracks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -45,7 +47,7 @@ export default function Home() {
   }, [tracks])
 
   return (
-    <div style={{padding:'24px 28px'}}>
+    <div style={{padding: isMobile ? '16px 14px' : '24px 28px'}}>
       <div style={s.header}>
         <h1 style={{fontSize:22,fontWeight:700}}>Descubre música</h1>
         <div style={s.tabs}>

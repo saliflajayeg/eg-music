@@ -22,7 +22,7 @@ export default function App() {
         <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)' }}>
           <div className="flag-bar" />
           <Navbar />
-          <div style={{ flex:1, overflowY:'auto' }}>
+          <div style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
             <Routes>
               <Route path="/"          element={<Home />} />
               <Route path="/login"     element={<Login />} />
