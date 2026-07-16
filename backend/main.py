@@ -1,10 +1,11 @@
 import os, sys, uuid, threading, time, socket
+from html import escape
 from pathlib import Path
 from typing import Optional
 
 from fastapi import (FastAPI, HTTPException, Request, Depends, UploadFile, File, Form)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse, FileResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse, HTMLResponse
 from pydantic import BaseModel
 import uvicorn
 
@@ -60,8 +61,9 @@ TRACKS_DIR   = UPLOADS_DIR / "tracks"
 COVERS_DIR   = UPLOADS_DIR / "covers"
 AVATARS_DIR  = UPLOADS_DIR / "avatars"
 RECEIPTS_DIR = UPLOADS_DIR / "receipts"
+SHARE_IMG_DIR = UPLOADS_DIR / "share"   # cached, resized link-preview artwork
 
-for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR):
+for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR, SHARE_IMG_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -321,6 +323,36 @@ def track_cover(track_id: int):
     if not path.exists(): raise HTTPException(404)
     return FileResponse(str(path), media_type=_mime(t['cover'], IMAGE_MIME))
 
+@app.get("/api/tracks/{track_id}/share-image")
+def track_share_image(track_id: int):
+    """Artwork for social link previews. Always returns an image — falls back
+    to the app icon — because a preview with no image looks broken.
+
+    Served as a small cached JPEG: full-size covers are megabytes, and the
+    tunnel is slow enough that WhatsApp's crawler gives up before fetching one,
+    which silently kills the preview."""
+    t = db.get_track(track_id)
+    src = None
+    if t and t.get('cover'):
+        p = COVERS_DIR / t['cover']
+        if p.exists():
+            src = p
+    if src is None:
+        src = BASE_DIR.parent / 'frontend' / 'assets' / 'icon-only.png'
+    if not src.exists():
+        raise HTTPException(404)
+
+    cache = SHARE_IMG_DIR / f"share_{track_id}.jpg"
+    if not cache.exists() or cache.stat().st_mtime < src.stat().st_mtime:
+        try:
+            from PIL import Image
+            im = Image.open(src).convert('RGB')
+            im.thumbnail((600, 600), Image.LANCZOS)
+            im.save(str(cache), 'JPEG', quality=82, optimize=True)
+        except Exception:
+            return FileResponse(str(src))   # resizing failed: send the original
+    return FileResponse(str(cache), media_type='image/jpeg')
+
 @app.post("/api/tracks/{track_id}/like")
 def like_track(track_id: int, user=Depends(require_user)):
     liked, count = db.toggle_like(user['id'], track_id)
@@ -509,9 +541,51 @@ def download_apk():
         filename='EG-Music.apk',
     )
 
+# ── Social link previews ────────────────────────────────────────────────────────
+# WhatsApp/Facebook/X crawlers don't run JavaScript, so a shared link to this
+# SPA would preview as a generic page. These routes serve the same index.html
+# with per-song Open Graph tags injected, which is what makes a shared song show
+# its artwork and title in a chat or a status.
+
+SHARE_BASE = "https://eg-music.xalif-lajay-eg.workers.dev"   # permanent, survives tunnel rotation
+_STATIC = (BASE_DIR.parent / 'frontend' / 'dist').resolve()
+
+def _spa_with_og(track_id: int):
+    index = _STATIC / 'index.html'
+    if not index.is_file():
+        raise HTTPException(404)
+    html = index.read_text(encoding='utf-8')
+    t = db.get_track(track_id)
+    if t:
+        who   = t.get('display_name') or t.get('username') or t.get('artist') or ''
+        kind  = 'video' if t.get('media_type') == 'video' else 'canción'
+        title = f"{t['title']} — {who}"
+        desc  = f"Escucha esta {kind} en EG Music · Tu música. Tu tierra. Tu orgullo."
+        tags = (
+            f'<meta property="og:type" content="music.song" />'
+            f'<meta property="og:site_name" content="EG Music" />'
+            f'<meta property="og:title" content="{escape(title, quote=True)}" />'
+            f'<meta property="og:description" content="{escape(desc, quote=True)}" />'
+            f'<meta property="og:image" content="{SHARE_BASE}/img/{track_id}" />'
+            f'<meta property="og:url" content="{SHARE_BASE}/s/{track_id}" />'
+            f'<meta name="twitter:card" content="summary_large_image" />'
+            f'<meta name="twitter:title" content="{escape(title, quote=True)}" />'
+            f'<meta name="twitter:description" content="{escape(desc, quote=True)}" />'
+            f'<meta name="twitter:image" content="{SHARE_BASE}/img/{track_id}" />'
+        )
+        html = html.replace('</head>', tags + '</head>', 1)
+    return HTMLResponse(html, headers={'Cache-Control': 'no-cache'})
+
+@app.get("/track/{track_id}")
+def share_page_track(track_id: int):
+    return _spa_with_og(track_id)
+
+@app.get("/watch/{track_id}")
+def share_page_watch(track_id: int):
+    return _spa_with_og(track_id)
+
 # ── Static frontend (SPA) ──────────────────────────────────────────────────────
 
-_STATIC = (BASE_DIR.parent / 'frontend' / 'dist').resolve()
 if _STATIC.is_dir():
     @app.get("/{full_path:path}")
     def spa(full_path: str):

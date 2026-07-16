@@ -40,6 +40,23 @@ export default {
         : json({ error: 'EG Music no está en línea ahora mismo.' }, 503)
     }
 
+    // Permanent share links. Users post these to WhatsApp/Facebook, so they
+    // must outlive tunnel rotations — hence the redirect through here rather
+    // than sharing a raw *.trycloudflare.com address.
+    //   /s/:id    -> the song's page (social crawlers follow the redirect and
+    //                read the Open Graph tags the backend injects there)
+    //   /img/:id  -> the song's artwork, for the link preview
+    const share = pathname.match(/^\/s\/(\d+)$/)
+    const img   = pathname.match(/^\/img\/(\d+)$/)
+    if (share || img) {
+      const backend = await env.CONFIG.get('backend_url')
+      if (!backend) return json({ error: 'EG Music no está en línea ahora mismo.' }, 503)
+      const target = share
+        ? `${backend}/track/${share[1]}`
+        : `${backend}/api/tracks/${img[1]}/share-image`
+      return Response.redirect(target, 302)
+    }
+
     return json({ error: 'Not found' }, 404)
   },
 }

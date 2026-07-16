@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getTrack, trackStreamUrl, likeTrack, deleteTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { isNative, isDownloaded, downloadMedia, deleteDownload, localSrc, queuePlay } from '../offline'
+import { shareTrack } from '../share'
 
 export default function Watch() {
   const { id } = useParams()
@@ -101,6 +102,10 @@ export default function Watch() {
             style={{...s.likeBtn, color: liked ? 'var(--danger)' : 'var(--text2)'}}>
             {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
           </button>
+          <button onClick={async () => {
+            const r = await shareTrack(track)
+            if (r === 'copied') alert('Enlace copiado. Pégalo donde quieras compartirlo.')
+          }} style={s.shareBtn}>↗ Compartir</button>
           {isNative() && (
             <button onClick={handleDownload} style={s.dlBtn}>
               {dl === 'busy' ? '⏳ Descargando...' : dl === 'done' ? '✓ Descargado' : '⬇ Descargar'}
@@ -134,6 +139,7 @@ const s = {
   views: {fontSize:13,color:'var(--text3)',marginLeft:'auto'},
   actions: {display:'flex',alignItems:'center',gap:16,paddingTop:12,borderTop:'1px solid var(--border)'},
   likeBtn: {fontSize:16,fontWeight:600},
+  shareBtn: {fontSize:13,fontWeight:600,color:'var(--text2)'},
   dlBtn: {fontSize:13,fontWeight:600,color:'var(--accent2)'},
   deleteBtn: {color:'var(--danger)',fontSize:13,fontWeight:600},
   description: {marginTop:16,color:'var(--text2)',fontSize:14,lineHeight:1.6,whiteSpace:'pre-wrap'},

@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { trackCoverUrl, likeTrack, deleteTrack } from '../api'
 import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
+import { shareTrack } from '../share'
 
 export default function TrackCard({ track, queue, onDelete }) {
   const { playTrack, currentTrack, isPlaying } = usePlayer()
@@ -48,6 +49,12 @@ export default function TrackCard({ track, queue, onDelete }) {
       setLiked(r.liked)
       setLikeCount(r.like_count)
     } catch {}
+  }
+
+  async function handleShare(e) {
+    e.stopPropagation()
+    const r = await shareTrack(track)
+    if (r === 'copied') alert('Enlace copiado. Pégalo donde quieras compartirlo.')
   }
 
   async function handleDelete(e) {
@@ -113,6 +120,9 @@ export default function TrackCard({ track, queue, onDelete }) {
           {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
         </button>
         <div style={{display:'flex', alignItems:'center', gap:6}}>
+          <button onClick={handleShare} style={s.dlBtn} title="Compartir">
+            <IcoShare />
+          </button>
           {isNative() && (
             <button onClick={handleDownload} style={s.dlBtn}
               title={dl === 'done' ? 'Descargado' : 'Descargar para escuchar sin conexión'}>
@@ -128,6 +138,13 @@ export default function TrackCard({ track, queue, onDelete }) {
   )
 }
 
+const IcoShare = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>
+  </svg>
+)
 const IcoPlay  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
 const IcoPause = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
 
