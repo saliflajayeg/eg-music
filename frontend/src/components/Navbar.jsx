@@ -19,10 +19,8 @@ export default function Navbar() {
 
   const logo = (
     <Link to="/" style={s.logo}>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--accent)">
-        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-      </svg>
-      <span style={s.logoText}>EG Music</span>
+      <img src="/logo.png" alt="EG Music"
+        style={{...s.logoImg, height: isMobile ? 24 : 28}} />
     </Link>
   )
 
@@ -151,8 +149,8 @@ const s = {
   navTopRow: {
     display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
   },
-  logo: { display:'flex', alignItems:'center', gap:8, flexShrink:0 },
-  logoText: { fontSize:18, fontWeight:800, color:'var(--text)' },
+  logo: { display:'flex', alignItems:'center', flexShrink:0 },
+  logoImg: { width:'auto', display:'block' },
   searchForm: {
     flex:1, maxWidth:380,
     display:'flex', alignItems:'center', gap:8,
