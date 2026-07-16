@@ -1,0 +1,13 @@
+{
+  "name": "eg-music-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Permanent discovery endpoint that tells the EG Music app where the backend currently lives",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

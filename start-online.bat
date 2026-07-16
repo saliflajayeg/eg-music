@@ -39,18 +39,24 @@ if not defined URL (
 
 echo|set /p="%URL%" | clip
 
+echo  [3/3] Avisando a la app cual es la direccion de hoy...
+powershell -NoProfile -ExecutionPolicy Bypass -File "publish-url.ps1" -Url "%URL%"
+
 echo.
 echo  ═══════════════════════════════════════════════════════════
-echo   EG Music ya esta en linea:
+echo   EG Music ya esta en linea.
 echo.
-echo    %URL%
+echo   Para la APP de Android (fija, nunca cambia):
+echo     https://eg-music.xalif-lajay-eg.workers.dev
+echo     ^(la app la usa sola: no hay que reinstalar nada^)
 echo.
-echo   [Copiada al portapapeles - pega con Ctrl+V para compartirla]
+echo   Para compartir por el navegador (cambia cada arranque):
+echo     %URL%
+echo     [Copiada al portapapeles - pega con Ctrl+V]
 echo  ═══════════════════════════════════════════════════════════
 echo.
 echo  ⚠ NO cierres las ventanas "Servidor" ni "Tunel publico":
 echo    el sitio esta online mientras esten abiertas.
-echo  ⚠ Esta direccion CAMBIARA la proxima vez que reinicies.
-echo  ℹ ¿La olvidaste? Ejecuta get-online-url.bat en cualquier momento.
+echo  ℹ ¿Olvidaste la direccion del navegador? Ejecuta get-online-url.bat
 echo.
 pause

@@ -48,3 +48,7 @@ frontend/android/app/release/
 .DS_Store
 Thumbs.db
 *.log
+
+# ─────────── Cloudflare Worker (wrangler scratch) ───────────
+worker/.wrangler/
+worker/*.txt

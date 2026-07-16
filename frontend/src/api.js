@@ -1,7 +1,39 @@
-// Web build (same origin as the backend): relative '/api' — unchanged behavior.
-// Android build (Capacitor, no origin to be relative to): VITE_API_URL must
-// point at the backend's public address. See .env.android.example.
-const B = (import.meta.env.VITE_API_URL || '') + '/api'
+// Where the backend lives.
+//
+// Website: same origin as the page -> BASE stays '' and everything is relative.
+// Android app: there is no same-origin backend, and the PC's tunnel address
+//   rotates on every restart. So instead of baking an address into the APK we
+//   ask a tiny, permanent Cloudflare Worker for the current one at startup
+//   (VITE_DISCOVERY_URL) and cache the answer for offline use.
+let BASE = ''
+let ready = Promise.resolve()
+
+const DISCOVERY = import.meta.env.VITE_DISCOVERY_URL || ''
+const FALLBACK  = import.meta.env.VITE_API_URL || ''
+
+if (FALLBACK) BASE = FALLBACK
+try {
+  const cached = localStorage.getItem('backend_url')   // last known good
+  if (cached) BASE = cached
+} catch {}
+
+// Resolve the backend address. Call once at boot, before rendering.
+export function initBackend() {
+  if (!DISCOVERY) return Promise.resolve()   // website: nothing to discover
+  ready = fetch(DISCOVERY, { cache: 'no-store' })
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg && cfg.backend) {
+        BASE = cfg.backend
+        try { localStorage.setItem('backend_url', cfg.backend) } catch {}
+      }
+    })
+    .catch(() => {})   // offline / worker unreachable -> keep cached address
+  return ready
+}
+
+export const backendBase = () => BASE
+const api = path => BASE + '/api' + path
 
 function authHeaders() {
   const token = localStorage.getItem('token')
@@ -9,6 +41,7 @@ function authHeaders() {
 }
 
 async function req(method, path, body, isForm = false) {
+  await ready   // never fire a request at a stale/unknown address
   const opts = { method, headers: { ...authHeaders() } }
   if (body && !isForm) {
     opts.headers['Content-Type'] = 'application/json'
@@ -16,7 +49,7 @@ async function req(method, path, body, isForm = false) {
   } else if (body && isForm) {
     opts.body = body
   }
-  const r = await fetch(B + path, opts)
+  const r = await fetch(api(path), opts)
   if (!r.ok) {
     const err = await r.json().catch(() => ({ detail: r.statusText }))
     const e = new Error(err.detail || 'Error del servidor')
@@ -74,14 +107,15 @@ export const adminSubs         = (status='')  => get(`/admin/subscriptions?statu
 export const adminReviewSub    = (id, body)   => post(`/admin/subscriptions/${id}/review`, body)
 export const adminReceiptUrl   = async id => {
   // Receipt images require the admin token, so fetch as blob instead of <img src>
-  const r = await fetch(`${B}/admin/subscriptions/${id}/receipt`, { headers: authHeaders() })
+  await ready
+  const r = await fetch(api(`/admin/subscriptions/${id}/receipt`), { headers: authHeaders() })
   if (!r.ok) throw new Error('No se pudo cargar el recibo')
   return URL.createObjectURL(await r.blob())
 }
 export const adminGetSettings  = ()           => get('/admin/settings')
 export const adminSaveSettings = body         => patch('/admin/settings', body)
 
-// URLs
-export const trackCoverUrl  = id   => `${B}/tracks/${id}/cover`
-export const trackStreamUrl = id   => `${B}/tracks/${id}/stream`
-export const avatarUrl      = fname => fname ? `${B}/avatars/${fname}` : null
+// URLs (resolved against whatever backend we discovered)
+export const trackCoverUrl  = id    => api(`/tracks/${id}/cover`)
+export const trackStreamUrl = id    => api(`/tracks/${id}/stream`)
+export const avatarUrl      = fname => fname ? api(`/avatars/${fname}`) : null

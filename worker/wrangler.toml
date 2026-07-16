@@ -1,0 +1,10 @@
+name = "eg-music"
+main = "src/index.js"
+compatibility_date = "2026-07-16"
+
+# Stores the backend address the app should currently talk to.
+# start-online.bat rewrites `backend_url` here every time the tunnel rotates,
+# so installed apps pick up the new address with no rebuild.
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "316ce9e4c04a4c498cd95f6423eb35bc"

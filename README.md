@@ -42,9 +42,19 @@ Requisitos: **Python 3.11+** y **Node.js 18+**.
 ```bat
 install.bat          :: crea el entorno virtual, instala dependencias y compila el frontend
 start.bat            :: arranca la app en http://localhost:8001 (local / LAN)
-start-online.bat     :: arranca la app Y la publica en internet con un túnel de Cloudflare
+start-online.bat     :: arranca la app, la publica en internet y avisa a la app Android
 get-online-url.bat   :: ¿olvidaste la dirección pública actual? este script te la recuerda
 ```
+
+### Dirección fija para la app de Android
+
+La app **no** lleva dentro la dirección del túnel (que cambia en cada arranque). En su lugar pregunta a un Cloudflare Worker permanente dónde está el backend hoy:
+
+```
+https://eg-music.xalif-lajay-eg.workers.dev/config   ->  { "backend": "https://….trycloudflare.com" }
+```
+
+`start-online.bat` publica la dirección nueva automáticamente (`publish-url.ps1`), así que **al reiniciar el túnel no hay que recompilar ni reinstalar la app**. El código del Worker está en [`worker/`](worker/); se despliega con `npx wrangler deploy` y sólo mueve un JSON diminuto por arranque de la app (la música nunca pasa por él).
 
 **Publicar en internet desde tu propio PC:** instala [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared`) y ejecuta `start-online.bat`. Te dará una dirección pública `https://….trycloudflare.com`, la copiará automáticamente al portapapeles, y podrás pegarla donde quieras compartirla — no requiere cuenta ni tarjeta.
 
