@@ -4,6 +4,7 @@ import { getTrack, trackStreamUrl, likeTrack, deleteTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { isNative, isDownloaded, downloadMedia, deleteDownload, localSrc, queuePlay } from '../offline'
 import { shareTrack } from '../share'
+import ArtistLine from '../components/ArtistLine'
 
 export default function Watch() {
   const { id } = useParams()
@@ -90,9 +91,7 @@ export default function Watch() {
       <div style={s.info}>
         <h1 style={s.title}>{track.title}</h1>
         <div style={s.row}>
-          <Link to={`/user/${track.user_id}`} style={s.artist}>
-            {track.display_name || track.username}
-          </Link>
+          <ArtistLine track={track} style={s.artist} showSplit={(track.artists || []).length > 1} />
           {track.genre && <span style={s.genre}>{track.genre}</span>}
           <span style={s.views}>👁 {track.play_count} vistas</span>
         </div>

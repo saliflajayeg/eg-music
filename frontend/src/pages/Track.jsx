@@ -5,6 +5,7 @@ import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../context/AuthContext'
 import { shareTrack } from '../share'
 import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
+import ArtistLine from '../components/ArtistLine'
 
 // Landing page for a shared song. Someone taps a link in WhatsApp and lands
 // here: big artwork, play, and a share button to pass it on.
@@ -74,9 +75,7 @@ export default function Track() {
       </div>
 
       <h1 style={s.title}>{track.title}</h1>
-      <Link to={`/user/${track.user_id}`} style={s.artist}>
-        {track.display_name || track.username}
-      </Link>
+      <ArtistLine track={track} style={s.artist} showSplit={(track.artists || []).length > 1} />
       <div style={s.meta}>
         {track.genre && <span style={s.genre}>{track.genre}</span>}
         <span>▶ {track.play_count} reproducciones</span>

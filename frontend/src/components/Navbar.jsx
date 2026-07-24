@@ -1,15 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useIsMobile } from '../hooks'
 import { isNative } from '../offline'
-import { avatarUrl } from '../api'
+import { avatarUrl, pendingCollabs } from '../api'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [collabCount, setCollabCount] = useState(0)
   const isMobile = useIsMobile()
+
+  // Badge for pending collaboration invitations.
+  useEffect(() => {
+    if (!user) { setCollabCount(0); return }
+    pendingCollabs().then(l => setCollabCount(l.length)).catch(() => {})
+  }, [user?.id])
 
   function handleLogout() {
     logout()
@@ -43,6 +50,10 @@ export default function Navbar() {
                     📥 Mis descargas
                   </Link>
                 )}
+                <Link to="/colaboraciones" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                  🤝 Colaboraciones
+                  {collabCount > 0 && <span style={s.badge}>{collabCount}</span>}
+                </Link>
                 <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   Cambiar contraseña
                 </Link>
@@ -189,4 +200,8 @@ const s = {
     transition:'background .1s',
   },
   dropDivider: { height:1, background:'var(--border)', margin:'4px 0' },
+  badge: {
+    background:'var(--danger)', color:'#fff', borderRadius:20,
+    padding:'1px 6px', fontSize:10, marginLeft:6, fontWeight:700,
+  },
 }

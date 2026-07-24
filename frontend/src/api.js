@@ -89,6 +89,12 @@ export const deleteTrack      = id         => del(`/tracks/${id}`)
 export const likeTrack        = id         => post(`/tracks/${id}/like`)
 export const search           = q          => get(`/search?q=${encodeURIComponent(q)}`)
 
+// Collaborations
+export const searchArtists    = q          => get(`/artists/search?q=${encodeURIComponent(q)}`)
+export const pendingCollabs   = ()         => get('/collabs/pending')
+export const respondCollab    = (id, ok)   => post(`/collabs/${id}/respond`, { accept: ok })
+export const trackArtists     = id         => get(`/tracks/${id}/artists`)
+
 // Offline sync
 export const postPlayEvents   = body       => post('/sync/plays', body)
 // Downloads (plan-limited; call before saving a track offline)
@@ -112,6 +118,7 @@ export const adminReceiptUrl   = async id => {
   if (!r.ok) throw new Error('No se pudo cargar el recibo')
   return URL.createObjectURL(await r.blob())
 }
+export const adminEarnings     = ()           => get('/admin/earnings')
 export const adminGetSettings  = ()           => get('/admin/settings')
 export const adminSaveSettings = body         => patch('/admin/settings', body)
 

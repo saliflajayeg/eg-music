@@ -16,6 +16,7 @@ import Admin     from './pages/Admin'
 import ChangePassword from './pages/ChangePassword'
 import Watch     from './pages/Watch'
 import Track     from './pages/Track'
+import Collabs   from './pages/Collabs'
 import Downloads from './pages/Downloads'
 
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="/user/:id"  element={<Profile />} />
               <Route path="/watch/:id" element={<Watch />} />
               <Route path="/track/:id" element={<Track />} />
+              <Route path="/colaboraciones" element={<Collabs />} />
               <Route path="/downloads" element={<Downloads />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>

@@ -86,6 +86,22 @@ class Database:
                 FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
             );
 
+            -- Who made a track, and each artist's share. The uploader is
+            -- stored here too (is_owner=1, auto-accepted). Collaborators start
+            -- 'pending' and only appear publicly once they accept, so nobody
+            -- can attach themselves to a well-known artist without permission.
+            CREATE TABLE IF NOT EXISTS track_artists (
+                track_id   INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                percent    REAL NOT NULL DEFAULT 0,
+                status     TEXT DEFAULT 'pending',   -- pending | accepted | declined
+                is_owner   INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (track_id, user_id),
+                FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS downloads (
                 user_id    INTEGER NOT NULL,
                 track_id   INTEGER NOT NULL,
@@ -151,6 +167,15 @@ class Database:
             self.set_setting('pro_upload_limit',     '8')   # per month
             self.set_setting('premium_upload_limit', '15')  # per month
             self.set_setting('plan_model_v2', '1')
+
+        # Tracks uploaded before collaborations existed: credit the uploader
+        # 100% so every track has a consistent artist list.
+        if self.get_setting('collabs_backfilled') is None:
+            self.conn.execute('''
+                INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner)
+                SELECT id, user_id, 100, 'accepted', 1 FROM tracks
+            ''')
+            self.set_setting('collabs_backfilled', '1')
 
     # ── Users ─────────────────────────────────────────────────────────────────
 
@@ -257,6 +282,14 @@ class Database:
         self.conn.commit()
         return cur.lastrowid
 
+    def _with_artists(self, rows):
+        """Attach each track's credited artists (owner + accepted collaborators)."""
+        tracks = [dict(r) for r in rows]
+        amap = self.artists_for_tracks([t['id'] for t in tracks])
+        for t in tracks:
+            t['artists'] = amap.get(t['id'], [])
+        return tracks
+
     def get_track(self, track_id, viewer_id=None):
         r = self.conn.execute('''
             SELECT t.*, u.username, u.display_name,
@@ -265,7 +298,7 @@ class Database:
             FROM tracks t JOIN users u ON t.user_id=u.id
             WHERE t.id=?
         ''', (viewer_id or 0, track_id)).fetchone()
-        return dict(r) if r else None
+        return self._with_artists([r])[0] if r else None
 
     def get_feed(self, viewer_id=None, limit=40, offset=0):
         rows = self.conn.execute('''
@@ -277,18 +310,25 @@ class Database:
             ORDER BY t.created_at DESC
             LIMIT ? OFFSET ?
         ''', (viewer_id or 0, limit, offset)).fetchall()
-        return [dict(r) for r in rows]
+        return self._with_artists(rows)
 
     def get_user_tracks(self, user_id, viewer_id=None):
+        # Includes tracks this artist was credited on by someone else, so a
+        # collaboration shows up on every featured artist's profile.
         rows = self.conn.execute('''
             SELECT t.*, u.username, u.display_name,
                    (SELECT COUNT(*) FROM likes WHERE track_id=t.id) AS like_count,
                    (SELECT COUNT(*) FROM likes WHERE track_id=t.id AND user_id=?) AS liked_by_me
             FROM tracks t JOIN users u ON t.user_id=u.id
-            WHERE t.user_id=? AND t.is_public=1
+            WHERE t.is_public=1 AND (
+                t.user_id=? OR t.id IN (
+                    SELECT track_id FROM track_artists
+                    WHERE user_id=? AND status='accepted'
+                )
+            )
             ORDER BY t.created_at DESC
-        ''', (viewer_id or 0, user_id)).fetchall()
-        return [dict(r) for r in rows]
+        ''', (viewer_id or 0, user_id, user_id)).fetchall()
+        return self._with_artists(rows)
 
     def delete_track(self, track_id):
         r = self.conn.execute('SELECT filename, cover FROM tracks WHERE id=?', (track_id,)).fetchone()
@@ -299,6 +339,101 @@ class Database:
     def increment_plays(self, track_id):
         self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (track_id,))
         self.conn.commit()
+
+    # ── Collaborations (multi-artist tracks + revenue splits) ──────────────────
+
+    def set_track_artists(self, track_id, owner_id, owner_percent, collaborators):
+        """Record who made a track. `collaborators` is [{user_id, percent}];
+        each starts pending until that artist accepts. The uploader is stored
+        as the owner and is accepted automatically."""
+        self.conn.execute('DELETE FROM track_artists WHERE track_id=?', (track_id,))
+        self.conn.execute(
+            "INSERT INTO track_artists (track_id, user_id, percent, status, is_owner) VALUES (?,?,?,'accepted',1)",
+            (track_id, owner_id, owner_percent)
+        )
+        for c in collaborators:
+            uid = c.get('user_id')
+            if not uid or int(uid) == int(owner_id):
+                continue
+            self.conn.execute(
+                "INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner) VALUES (?,?,?,'pending',0)",
+                (track_id, uid, float(c.get('percent') or 0))
+            )
+        self.conn.commit()
+
+    def get_track_artists(self, track_id, include_pending=False):
+        q = '''
+            SELECT ta.user_id, ta.percent, ta.status, ta.is_owner,
+                   u.username, u.display_name, u.avatar
+            FROM track_artists ta JOIN users u ON ta.user_id = u.id
+            WHERE ta.track_id = ?
+        '''
+        if not include_pending:
+            q += " AND ta.status = 'accepted'"
+        q += ' ORDER BY ta.is_owner DESC, ta.percent DESC'
+        return [dict(r) for r in self.conn.execute(q, (track_id,)).fetchall()]
+
+    def artists_for_tracks(self, track_ids):
+        """Batch-load accepted artists for many tracks at once (avoids an N+1
+        query when building a feed)."""
+        if not track_ids:
+            return {}
+        marks = ','.join('?' * len(track_ids))
+        rows = self.conn.execute(f'''
+            SELECT ta.track_id, ta.user_id, ta.percent, ta.is_owner,
+                   u.username, u.display_name
+            FROM track_artists ta JOIN users u ON ta.user_id = u.id
+            WHERE ta.track_id IN ({marks}) AND ta.status = 'accepted'
+            ORDER BY ta.is_owner DESC, ta.percent DESC
+        ''', track_ids).fetchall()
+        out = {}
+        for r in rows:
+            out.setdefault(r['track_id'], []).append(dict(r))
+        return out
+
+    def respond_collab(self, track_id, user_id, accept):
+        self.conn.execute(
+            "UPDATE track_artists SET status=? WHERE track_id=? AND user_id=? AND is_owner=0",
+            ('accepted' if accept else 'declined', track_id, user_id)
+        )
+        self.conn.commit()
+
+    def get_pending_collabs(self, user_id):
+        rows = self.conn.execute('''
+            SELECT ta.track_id, ta.percent, t.title, t.cover, t.media_type,
+                   u.username AS owner_username, u.display_name AS owner_display_name
+            FROM track_artists ta
+            JOIN tracks t ON ta.track_id = t.id
+            JOIN users  u ON t.user_id = u.id
+            WHERE ta.user_id=? AND ta.status='pending' AND ta.is_owner=0
+            ORDER BY ta.created_at DESC
+        ''', (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_collab_track_ids(self, user_id):
+        """Tracks this user appears on as an accepted collaborator (not owner)."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT track_id FROM track_artists WHERE user_id=? AND status='accepted' AND is_owner=0",
+            (user_id,)
+        ).fetchall()]
+
+    def get_earnings_report(self):
+        """Per-artist totals based on each track's plays and that artist's share.
+        'credited_plays' = sum(play_count * percent/100) — a fair-share view of
+        how much listening each artist actually accounts for."""
+        rows = self.conn.execute('''
+            SELECT u.id AS user_id, u.username, u.display_name, u.plan,
+                   COUNT(DISTINCT ta.track_id) AS tracks,
+                   COALESCE(SUM(t.play_count), 0) AS total_plays,
+                   COALESCE(SUM(t.play_count * ta.percent / 100.0), 0) AS credited_plays
+            FROM track_artists ta
+            JOIN tracks t ON ta.track_id = t.id
+            JOIN users  u ON ta.user_id  = u.id
+            WHERE ta.status = 'accepted'
+            GROUP BY u.id
+            ORDER BY credited_plays DESC
+        ''').fetchall()
+        return [dict(r) for r in rows]
 
     def record_play_events(self, user_id, events):
         """Apply offline play/view events idempotently. Each event has a
@@ -351,7 +486,7 @@ class Database:
             WHERE l.user_id=? AND t.is_public=1
             ORDER BY t.created_at DESC
         ''', (user_id,)).fetchall()
-        return [dict(r) for r in rows]
+        return self._with_artists(rows)
 
     # ── Follows ───────────────────────────────────────────────────────────────
 
@@ -380,27 +515,37 @@ class Database:
             ORDER BY t.created_at DESC
             LIMIT ?
         ''', (user_id, user_id, limit)).fetchall()
-        return [dict(r) for r in rows]
+        return self._with_artists(rows)
 
     # ── Search ────────────────────────────────────────────────────────────────
 
     def search(self, q):
         like = f'%{q}%'
+        # Also matches credited collaborators, so searching an artist finds the
+        # songs they're featured on, not only the ones they uploaded.
         tracks = self.conn.execute('''
             SELECT t.*, u.username, u.display_name,
                    (SELECT COUNT(*) FROM likes WHERE track_id=t.id) AS like_count,
                    0 AS liked_by_me
             FROM tracks t JOIN users u ON t.user_id=u.id
-            WHERE t.is_public=1 AND (t.title LIKE ? OR t.artist LIKE ? OR t.genre LIKE ?)
+            WHERE t.is_public=1 AND (
+                t.title LIKE ? OR t.artist LIKE ? OR t.genre LIKE ?
+                OR t.id IN (
+                    SELECT ta.track_id FROM track_artists ta
+                    JOIN users au ON ta.user_id = au.id
+                    WHERE ta.status='accepted'
+                      AND (au.username LIKE ? OR au.display_name LIKE ?)
+                )
+            )
             ORDER BY t.play_count DESC LIMIT 30
-        ''', (like, like, like)).fetchall()
+        ''', (like, like, like, like, like)).fetchall()
         users = self.conn.execute('''
             SELECT id, username, display_name, bio, avatar, plan,
                    (SELECT COUNT(*) FROM tracks WHERE user_id=users.id AND is_public=1) AS track_count
             FROM users WHERE username LIKE ? OR display_name LIKE ?
             LIMIT 10
         ''', (like, like)).fetchall()
-        return {'tracks': [dict(r) for r in tracks], 'users': [dict(r) for r in users]}
+        return {'tracks': self._with_artists(tracks), 'users': [dict(r) for r in users]}
 
     # ── Subscription requests ─────────────────────────────────────────────────
 

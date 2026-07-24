@@ -16,8 +16,8 @@
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
 export default {
@@ -25,6 +25,42 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS })
 
     const { pathname } = new URL(request.url)
+
+    // The server publishes its current tunnel URL here on every startup.
+    // Replaces the old wrangler-CLI path so the host only needs curl:
+    //   curl -X POST .../publish -H "Authorization: Bearer $TOKEN" \
+    //        -H "Content-Type: application/json" -d '{"backend":"https://..."}'
+    // Token lives in the PUBLISH_TOKEN Worker secret.
+    if (pathname === '/publish' && request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || ''
+      if (!env.PUBLISH_TOKEN || auth !== `Bearer ${env.PUBLISH_TOKEN}`) {
+        return json({ error: 'No autorizado' }, 401)
+      }
+      let body
+      try { body = await request.json() } catch { return json({ error: 'JSON inválido' }, 400) }
+      const backend = (body.backend || '').trim().replace(/\/+$/, '')
+      if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(backend)) {
+        return json({ error: 'backend debe ser una URL https://*.trycloudflare.com' }, 400)
+      }
+      const updated_at = new Date().toISOString()
+      // "target" elige qué app publica su URL; por defecto EG Music.
+      if (body.target === 'reyfrio') {
+        await env.CONFIG.put('reyfrio_url', backend)
+        await env.CONFIG.put('reyfrio_updated_at', updated_at)
+      } else {
+        await env.CONFIG.put('backend_url', backend)
+        await env.CONFIG.put('updated_at', updated_at)
+      }
+      return json({ ok: true, backend, updated_at })
+    }
+
+    // Dirección permanente de Rey Frío: redirige al túnel actual.
+    if (pathname === '/reyfrio') {
+      const target = await env.CONFIG.get('reyfrio_url')
+      return target
+        ? Response.redirect(target, 302)
+        : json({ error: 'Rey Frío no está en línea ahora mismo.' }, 503)
+    }
 
     if (pathname === '/config' || pathname === '/') {
       const backend = await env.CONFIG.get('backend_url')

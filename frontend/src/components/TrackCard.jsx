@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { trackCoverUrl, likeTrack, deleteTrack } from '../api'
 import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
 import { shareTrack } from '../share'
+import ArtistLine from './ArtistLine'
 
 export default function TrackCard({ track, queue, onDelete }) {
   const { playTrack, currentTrack, isPlaying } = usePlayer()
@@ -103,9 +104,7 @@ export default function TrackCard({ track, queue, onDelete }) {
       {/* Info */}
       <div style={s.info}>
         <div style={s.title} title={track.title}>{track.title}</div>
-        <Link to={`/user/${track.user_id}`} style={s.artist} onClick={e => e.stopPropagation()}>
-          {track.display_name || track.username}
-        </Link>
+        <ArtistLine track={track} style={s.artist} />
         {track.genre && <span style={s.genre}>{track.genre}</span>}
         <div style={s.meta}>
           <span>{fmt(track.duration)}</span>

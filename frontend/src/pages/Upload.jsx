@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { uploadTrack } from '../api'
 import { useAuth } from '../context/AuthContext'
+import CollaboratorPicker from '../components/CollaboratorPicker'
 
 export default function Upload() {
   const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({ title:'', artist: user?.display_name || '', album:'', genre:'', description:'' })
   const [mediaFile, setMediaFile] = useState(null)
+  const [collabs, setCollabs] = useState([])
   const isVideo = mediaFile && /\.(mp4|webm|mov)$/i.test(mediaFile.name)
   const [coverFile, setCoverFile] = useState(null)
   const [coverPreview, setCoverPreview] = useState(null)
@@ -62,6 +64,11 @@ export default function Upload() {
     e.preventDefault()
     if (!mediaFile) { setError('Selecciona un archivo de audio o video'); return }
     if (!form.title.trim()) { setError('El título es obligatorio'); return }
+    // Validate the split before uploading the file — the upload is slow here.
+    const bad = collabs.find(c => !(Number(c.percent) >= 1 && Number(c.percent) <= 99))
+    if (bad) { setError(`Pon un porcentaje entre 1 y 99 para ${bad.display_name || bad.username}`); return }
+    const used = collabs.reduce((n, c) => n + Number(c.percent), 0)
+    if (used >= 100) { setError('Los porcentajes de los colaboradores deben sumar menos de 100%'); return }
     setLoading(true); setError('')
     try {
       const fd = new FormData()
@@ -70,6 +77,9 @@ export default function Upload() {
       fd.append('album',       form.album)
       fd.append('genre',       form.genre)
       fd.append('description', form.description)
+      fd.append('collaborators', JSON.stringify(
+        collabs.map(c => ({ user_id: c.user_id, percent: Number(c.percent) }))
+      ))
       fd.append('audio',       mediaFile)
       if (coverFile) fd.append('cover', coverFile)
       const track = await uploadTrack(fd)
@@ -127,6 +137,12 @@ export default function Upload() {
         <textarea className="input" placeholder="Descripción (opcional)" rows={3}
           value={form.description} onChange={e => f('description', e.target.value)}
           style={{resize:'vertical'}} />
+
+        <CollaboratorPicker
+          value={collabs}
+          onChange={setCollabs}
+          ownerName={user.display_name || user.username}
+        />
 
         {/* Audio or video file */}
         <div style={s.fileBox}>

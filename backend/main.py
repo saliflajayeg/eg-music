@@ -1,4 +1,4 @@
-import os, sys, uuid, threading, time, socket
+import os, sys, uuid, threading, time, socket, json
 from html import escape
 from pathlib import Path
 from typing import Optional
@@ -240,6 +240,7 @@ async def upload_track(
     album:       str  = Form(''),
     genre:       str  = Form(''),
     description: str  = Form(''),
+    collaborators: str = Form(''),   # JSON: [{user_id, percent}]
     audio:       UploadFile = File(...),
     cover:       Optional[UploadFile] = File(None),
     user=Depends(require_uploader),
@@ -287,6 +288,31 @@ async def upload_track(
         genre.strip(), description.strip(), audio_fname, cover_fname, duration,
         media_type
     )
+
+    # Credited artists + revenue split. `collaborators` is a JSON list of
+    # {user_id, percent}; each collaborator must accept before appearing
+    # publicly, so nobody can credit a well-known artist without permission.
+    collabs = []
+    if collaborators:
+        try:
+            parsed = json.loads(collaborators)
+            if isinstance(parsed, list):
+                collabs = parsed[:10]   # sane cap
+        except Exception:
+            raise HTTPException(400, "Colaboradores inválidos")
+    total = 0.0
+    for c in collabs:
+        try:
+            p = float(c.get('percent') or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Porcentaje inválido")
+        if p <= 0 or p >= 100:
+            raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
+        total += p
+    if total >= 100:
+        raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    db.set_track_artists(tid, user['id'], round(100.0 - total, 2), collabs)
+
     return db.get_track(tid, viewer_id=user['id'])
 
 @app.delete("/api/tracks/{track_id}")
@@ -374,6 +400,45 @@ def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
     # Idempotent: dedupes on client_event_id so retries don't double-count.
     applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
     return {"applied": applied, "received": len(body.events)}
+
+# ── Collaborations ──────────────────────────────────────────────────────────────
+
+@app.get("/api/artists/search")
+def artists_search(q: str = '', user=Depends(require_user)):
+    """Find artists to credit on a track (the collaborator picker)."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    rows = db.search(q)['users']
+    return [
+        {k: r[k] for k in ('id', 'username', 'display_name', 'avatar', 'plan')}
+        for r in rows if r['id'] != user['id']
+    ][:8]
+
+@app.get("/api/collabs/pending")
+def collabs_pending(user=Depends(require_user)):
+    """Collaboration invitations waiting for me to accept."""
+    return db.get_pending_collabs(user['id'])
+
+class CollabResponse(BaseModel):
+    accept: bool
+
+@app.post("/api/collabs/{track_id}/respond")
+def collab_respond(track_id: int, body: CollabResponse, user=Depends(require_user)):
+    pending = [c for c in db.get_pending_collabs(user['id']) if c['track_id'] == track_id]
+    if not pending:
+        raise HTTPException(404, "No tienes una invitación pendiente para esta canción")
+    db.respond_collab(track_id, user['id'], body.accept)
+    return {"ok": True, "status": "accepted" if body.accept else "declined"}
+
+@app.get("/api/tracks/{track_id}/artists")
+def track_artists(track_id: int, current=Depends(get_current_user)):
+    t = db.get_track(track_id)
+    if not t:
+        raise HTTPException(404)
+    # The uploader (and admins) can also see who hasn't accepted yet.
+    owner = current and (current['id'] == t['user_id'] or current['is_admin'])
+    return db.get_track_artists(track_id, include_pending=bool(owner))
 
 # ── Downloads (plan-limited) ────────────────────────────────────────────────────
 
@@ -480,6 +545,12 @@ def admin_stats(user=Depends(require_admin)):
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return db.get_all_users()
+
+@app.get("/api/admin/earnings")
+def admin_earnings(user=Depends(require_admin)):
+    """Per-artist listening credited by each track's split, so collaborations
+    are attributed fairly rather than all counting for the uploader."""
+    return db.get_earnings_report()
 
 @app.patch("/api/admin/users/{uid}")
 def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admin)):

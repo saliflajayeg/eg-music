@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   adminStats, adminUsers, adminUpdateUser,
   adminSubs, adminReviewSub, adminReceiptUrl,
-  adminGetSettings, adminSaveSettings,
+  adminGetSettings, adminSaveSettings, adminEarnings,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -39,14 +39,14 @@ export default function Admin() {
       )}
 
       <div style={s.tabs}>
-        {['subs','users','settings'].map(t => (
+        {['subs','users','earnings','settings'].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,
             background:tab===t?'var(--accent)':'var(--bg3)',
             color:tab===t?'#fff':'var(--text2)',
             border:'1px solid var(--border)',cursor:'pointer',
           }}>
-            {t==='subs'?'Suscripciones':t==='users'?'Usuarios':'Configuración'}
+            {t==='subs'?'Suscripciones':t==='users'?'Usuarios':t==='earnings'?'Reparto':'Configuración'}
             {t==='subs' && stats?.pending_subscriptions > 0 && (
               <span style={s.badge}>{stats.pending_subscriptions}</span>
             )}
@@ -56,6 +56,7 @@ export default function Admin() {
 
       {tab === 'subs'     && <SubsPanel onRefresh={() => adminStats().then(setStats)} />}
       {tab === 'users'    && <UsersPanel />}
+      {tab === 'earnings' && <EarningsPanel />}
       {tab === 'settings' && <SettingsPanel />}
     </div>
   )
@@ -225,6 +226,57 @@ function UsersPanel() {
   )
 }
 
+function EarningsPanel() {
+  const [rows, setRows] = useState(null)
+
+  useEffect(() => { adminEarnings().then(setRows).catch(() => setRows([])) }, [])
+
+  if (rows === null) return <p style={{color:'var(--text3)',marginTop:20}}>Cargando...</p>
+
+  const totalCredited = rows.reduce((n, r) => n + r.credited_plays, 0)
+
+  return (
+    <div style={{marginTop:20}}>
+      <p style={{color:'var(--text3)',fontSize:12,marginBottom:16,lineHeight:1.6}}>
+        Reproducciones atribuidas a cada artista según su porcentaje en cada canción.
+        En una colaboración 60/40, una reproducción cuenta 0,6 para uno y 0,4 para el otro.
+        <br/>La app no reparte dinero automáticamente — esto es la base para calcularlo.
+      </p>
+
+      {rows.length === 0 ? (
+        <p style={{color:'var(--text3)'}}>Todavía no hay datos.</p>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {rows.map(r => {
+            const share = totalCredited > 0 ? (r.credited_plays / totalCredited) * 100 : 0
+            return (
+              <div key={r.user_id} style={s.userRow}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600}}>{r.display_name || r.username}</div>
+                  <div style={{fontSize:12,color:'var(--text3)'}}>
+                    {r.tracks} {r.tracks === 1 ? 'canción' : 'canciones'} · {r.total_plays} reproducciones totales
+                  </div>
+                  <div style={s.bar}>
+                    <div style={{...s.barFill, width:`${Math.min(100, share)}%`}} />
+                  </div>
+                </div>
+                <div style={{textAlign:'right',flexShrink:0}}>
+                  <div style={{fontSize:18,fontWeight:800,color:'var(--accent)'}}>
+                    {r.credited_plays.toFixed(1)}
+                  </div>
+                  <div style={{fontSize:11,color:'var(--text3)'}}>
+                    {share.toFixed(1)}% del total
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsPanel() {
   const [cfg, setCfg]     = useState({})
   const [saving, setSaving] = useState(false)
@@ -327,4 +379,6 @@ const s = {
     borderRadius:10,padding:'12px 16px',
   },
   label: {display:'flex',flexDirection:'column',fontSize:13,fontWeight:600,color:'var(--text2)'},
+  bar: {height:5,background:'var(--bg4)',borderRadius:3,marginTop:8,overflow:'hidden'},
+  barFill: {height:'100%',background:'var(--accent)',borderRadius:3},
 }
