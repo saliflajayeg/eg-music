@@ -55,7 +55,7 @@ export default function Navbar() {
                   {collabCount > 0 && <span style={s.badge}>{collabCount}</span>}
                 </Link>
                 <Link to="/password" style={s.dropItem} onClick={() => setMenuOpen(false)}>
-                  Cambiar contraseña
+                  Mi cuenta
                 </Link>
                 {user.plan !== 'premium' && (
                   <Link to="/subscribe" style={s.dropItem} onClick={() => setMenuOpen(false)}>

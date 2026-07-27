@@ -47,7 +47,7 @@ echo  ════════════════════════�
 echo   EG Music ya esta en linea.
 echo.
 echo   Para la APP de Android (fija, nunca cambia):
-echo     https://eg-music.xalif-lajay-eg.workers.dev
+echo     https://eg-music.egmusicapp.workers.dev
 echo     ^(la app la usa sola: no hay que reinstalar nada^)
 echo.
 echo   Para compartir por el navegador (cambia cada arranque):

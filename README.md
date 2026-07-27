@@ -51,7 +51,7 @@ get-online-url.bat   :: ¿olvidaste la dirección pública actual? este script t
 La app **no** lleva dentro la dirección del túnel (que cambia en cada arranque). En su lugar pregunta a un Cloudflare Worker permanente dónde está el backend hoy:
 
 ```
-https://eg-music.xalif-lajay-eg.workers.dev/config   ->  { "backend": "https://….trycloudflare.com" }
+https://eg-music.egmusicapp.workers.dev/config   ->  { "backend": "https://….trycloudflare.com" }
 ```
 
 `start-online.bat` publica la dirección nueva automáticamente (`publish-url.ps1`), así que **al reiniciar el túnel no hay que recompilar ni reinstalar la app**. El código del Worker está en [`worker/`](worker/); se despliega con `npx wrangler deploy` y sólo mueve un JSON diminuto por arranque de la app (la música nunca pasa por él).

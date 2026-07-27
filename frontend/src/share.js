@@ -7,7 +7,7 @@
 import { Capacitor } from '@capacitor/core'
 import { Share } from '@capacitor/share'
 
-const SHARE_BASE = import.meta.env.VITE_SHARE_BASE || 'https://eg-music.xalif-lajay-eg.workers.dev'
+const SHARE_BASE = import.meta.env.VITE_SHARE_BASE || 'https://eg-music.egmusicapp.workers.dev'
 
 export const shareLink = id => `${SHARE_BASE}/s/${id}`
 

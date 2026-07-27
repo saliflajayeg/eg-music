@@ -212,6 +212,10 @@ class Database:
         self.conn.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash, uid))
         self.conn.commit()
 
+    def update_email(self, uid, email):
+        self.conn.execute('UPDATE users SET email=? WHERE id=?', (email, uid))
+        self.conn.commit()
+
     def get_all_users(self):
         rows = self.conn.execute(
             'SELECT id,username,email,display_name,plan,is_admin,created_at FROM users ORDER BY created_at DESC'

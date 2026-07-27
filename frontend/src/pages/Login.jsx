@@ -30,7 +30,7 @@ export default function Login() {
         <h2 style={s.title}>Iniciar sesión</h2>
         {error && <div style={s.error}>{error}</div>}
         <form onSubmit={submit} style={s.form}>
-          <input className="input" type="email" placeholder="Email"
+          <input className="input" type="text" placeholder="Email o nombre de usuario"
             value={form.email} onChange={e => setForm({...form,email:e.target.value})} required />
           <input className="input" type="password" placeholder="Contraseña"
             value={form.password} onChange={e => setForm({...form,password:e.target.value})} required />

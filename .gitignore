@@ -52,3 +52,6 @@ Thumbs.db
 # ─────────── Cloudflare Worker (wrangler scratch) ───────────
 worker/.wrangler/
 worker/*.txt
+
+# stray local scratch (may contain tokens)
+/reg.json

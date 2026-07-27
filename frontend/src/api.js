@@ -71,6 +71,7 @@ export const register       = body => post('/auth/register', body)
 export const login          = body => post('/auth/login',    body)
 export const getMe          = ()   => get('/auth/me')
 export const changePassword = body => post('/auth/change-password', body)
+export const changeEmail    = body => post('/auth/change-email', body)
 
 // Users
 export const getUser        = id  => get(`/users/${id}`)

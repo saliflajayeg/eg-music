@@ -144,9 +144,11 @@ def register(body: RegisterBody):
 
 @app.post("/api/auth/login")
 def login(body: LoginBody):
-    user = db.get_user_by_email(body.email.strip().lower())
+    # `email` field carries either an email or a username (login accepts both)
+    ident = body.email.strip().lower()
+    user = db.get_user_by_email(ident) or db.get_user_by_username(ident)
     if not user or not verify_password(body.password, user['password_hash']):
-        raise HTTPException(401, "Email o contraseña incorrectos")
+        raise HTTPException(401, "Email/usuario o contraseña incorrectos")
     return {"token": create_token(user['id']), "user": _safe_user(user)}
 
 @app.get("/api/auth/me")
@@ -165,6 +167,23 @@ def change_password(body: ChangePasswordBody, user=Depends(require_user)):
         raise HTTPException(400, "La nueva contraseña debe tener al menos 6 caracteres")
     db.update_password(user['id'], hash_password(body.new_password))
     return {"ok": True}
+
+class ChangeEmailBody(BaseModel):
+    new_email: str
+    password: str
+
+@app.post("/api/auth/change-email")
+def change_email(body: ChangeEmailBody, user=Depends(require_user)):
+    if not verify_password(body.password, user['password_hash']):
+        raise HTTPException(401, "La contraseña no es correcta")
+    new_email = body.new_email.strip().lower()
+    if '@' not in new_email or '.' not in new_email.split('@')[-1]:
+        raise HTTPException(400, "Introduce un email válido")
+    existing = db.get_user_by_email(new_email)
+    if existing and existing['id'] != user['id']:
+        raise HTTPException(409, "Ese email ya está registrado")
+    db.update_email(user['id'], new_email)
+    return _safe_user(db.get_user_by_id(user['id']))
 
 def _safe_user(u):
     d = {k: u[k] for k in ('id','username','email','display_name','bio','avatar','plan','is_admin','created_at')}
@@ -618,7 +637,7 @@ def download_apk():
 # with per-song Open Graph tags injected, which is what makes a shared song show
 # its artwork and title in a chat or a status.
 
-SHARE_BASE = "https://eg-music.xalif-lajay-eg.workers.dev"   # permanent, survives tunnel rotation
+SHARE_BASE = "https://eg-music.egmusicapp.workers.dev"   # permanent, survives tunnel rotation
 _STATIC = (BASE_DIR.parent / 'frontend' / 'dist').resolve()
 
 def _spa_with_og(track_id: int):
