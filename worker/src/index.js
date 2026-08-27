@@ -63,14 +63,17 @@ export default {
     }
 
     if (pathname === '/config' || pathname === '/') {
-      const backend = await env.CONFIG.get('backend_url')
-      const updated = await env.CONFIG.get('updated_at')
-      return json({ backend: backend || null, updated_at: updated || null })
+      const pinned = await env.CONFIG.get('pinned_backend')
+      const backend = pinned || await env.CONFIG.get('backend_url')
+      const updated = pinned
+        ? (await env.CONFIG.get('pinned_at')) || null
+        : (await env.CONFIG.get('updated_at')) || null
+      return json({ backend: backend || null, updated_at: updated })
     }
 
     // Convenience: send a browser straight to the app.
     if (pathname === '/go') {
-      const backend = await env.CONFIG.get('backend_url')
+      const backend = await currentBackend(env)
       return backend
         ? Response.redirect(backend, 302)
         : json({ error: 'EG Music no está en línea ahora mismo.' }, 503)
@@ -85,7 +88,7 @@ export default {
     const share = pathname.match(/^\/s\/(\d+)$/)
     const img   = pathname.match(/^\/img\/(\d+)$/)
     if (share || img) {
-      const backend = await env.CONFIG.get('backend_url')
+      const backend = await currentBackend(env)
       if (!backend) return json({ error: 'EG Music no está en línea ahora mismo.' }, 503)
       const target = share
         ? `${backend}/track/${share[1]}`
@@ -95,6 +98,14 @@ export default {
 
     return json({ error: 'Not found' }, 404)
   },
+}
+
+// The backend the app should talk to right now. `pinned_backend` (set by hand
+// when we move to a permanent host like Render) wins over `backend_url` (the
+// rotating tunnel address the PC/egbox publishes). Clear the pin to fall back
+// to the tunnel again.
+async function currentBackend(env) {
+  return (await env.CONFIG.get('pinned_backend')) || (await env.CONFIG.get('backend_url'))
 }
 
 function json(body, status = 200) {
