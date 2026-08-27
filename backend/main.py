@@ -5,11 +5,13 @@ from typing import Optional
 
 from fastapi import (FastAPI, HTTPException, Request, Depends, UploadFile, File, Form)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import uvicorn
 
 from database import Database
+import transcode
+import storage
 from auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_user, require_uploader, require_admin
@@ -66,6 +68,12 @@ SHARE_IMG_DIR = UPLOADS_DIR / "share"   # cached, resized link-preview artwork
 for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR, SHARE_IMG_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
+# Background 480p rendition generator (adaptive video quality). Starts the
+# worker and queues any videos that still need a low-quality copy. Skipped when
+# media lives in R2 (no local files for ffmpeg; existing 480p copies still served).
+if not storage.enabled():
+    transcode.start(db, TRACKS_DIR)
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 AUDIO_MIME = {
@@ -77,6 +85,35 @@ VIDEO_MIME = {
 }
 MEDIA_MIME = {**AUDIO_MIME, **VIDEO_MIME}
 IMAGE_MIME = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp'}
+
+from datetime import datetime, timezone
+
+def _utcnow_str():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+def _parse_publish_at(s):
+    """ISO del frontend (UTC) -> 'YYYY-MM-DD HH:MM:SS' UTC; '' si vacío o ya pasó."""
+    s = (s or '').strip()
+    if not s:
+        return ''
+    try:
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+        if dt <= datetime.now(timezone.utc):
+            return ''
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return ''
+
+def _is_scheduled(t):
+    """True si el track está programado a futuro (aún no es público)."""
+    pa = (t.get('publish_at') or '').strip()
+    return bool(pa) and pa > _utcnow_str()
+
+def _can_manage_track(user, t):
+    return bool(user) and (user['id'] == t['user_id'] or user['is_admin'])
 
 def _mime(path, table):
     return table.get(Path(path).suffix.lower(), 'application/octet-stream')
@@ -216,9 +253,11 @@ async def upload_avatar(file: UploadFile = File(...), user=Depends(require_user)
     if ext not in IMAGE_MIME:
         raise HTTPException(400, "Formato de imagen no soportado")
     fname = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
-    fpath = AVATARS_DIR / fname
     content = await file.read()
-    fpath.write_bytes(content)
+    if storage.enabled():
+        storage.put(f'avatars/{fname}', content, IMAGE_MIME.get(ext))
+    else:
+        (AVATARS_DIR / fname).write_bytes(content)
     db.update_user(user['id'], avatar=fname)
     return {"avatar": fname}
 
@@ -235,8 +274,13 @@ def toggle_follow(uid: int, user=Depends(require_user)):
 # ── Tracks ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/tracks")
-def get_feed(offset: int = 0, limit: int = 40, current=Depends(get_current_user)):
-    return db.get_feed(viewer_id=current['id'] if current else None, limit=min(max(limit, 1), 100), offset=offset)
+def get_feed(offset: int = 0, limit: int = 40, sort: str = 'recent', genre: Optional[str] = None, current=Depends(get_current_user)):
+    return db.get_feed(viewer_id=current['id'] if current else None,
+                       limit=min(max(limit, 1), 100), offset=offset, sort=sort, genre=genre)
+
+@app.get("/api/tracks/top")
+def get_top(limit: int = 10, current=Depends(get_current_user)):
+    return db.get_top_tracks(viewer_id=current['id'] if current else None, limit=min(max(limit, 1), 50))
 
 @app.get("/api/tracks/following")
 def get_following_feed(user=Depends(require_user)):
@@ -250,7 +294,22 @@ def get_liked(user=Depends(require_user)):
 def get_track(track_id: int, current=Depends(get_current_user)):
     t = db.get_track(track_id, viewer_id=current['id'] if current else None)
     if not t: raise HTTPException(404)
+    # un tema programado a futuro solo lo ve su dueño (o un admin)
+    if _is_scheduled(t) and not _can_manage_track(current, t):
+        raise HTTPException(404)
     return t
+
+class ScheduleBody(BaseModel):
+    publish_at: str = ''   # ISO UTC, o '' para publicar ya
+
+@app.patch("/api/tracks/{track_id}/schedule")
+def set_track_schedule(track_id: int, body: ScheduleBody, user=Depends(require_user)):
+    t = db.get_track(track_id)
+    if not t: raise HTTPException(404)
+    if t['user_id'] != user['id'] and not user['is_admin']:
+        raise HTTPException(403, "No es tu canción")
+    db.set_publish_at(track_id, _parse_publish_at(body.publish_at))
+    return db.get_track(track_id, viewer_id=user['id'])
 
 @app.post("/api/tracks", status_code=201)
 async def upload_track(
@@ -260,6 +319,7 @@ async def upload_track(
     genre:       str  = Form(''),
     description: str  = Form(''),
     collaborators: str = Form(''),   # JSON: [{user_id, percent}]
+    publish_at:  str  = Form(''),    # ISO UTC futura, o '' para publicar ya
     audio:       UploadFile = File(...),
     cover:       Optional[UploadFile] = File(None),
     user=Depends(require_uploader),
@@ -281,6 +341,7 @@ async def upload_track(
 
     audio_fname = f"track_{user['id']}_{uuid.uuid4().hex}{ext}"
     audio_data  = await audio.read()
+    # Write locally first (mutagen needs a path); with R2 we upload then remove it.
     (TRACKS_DIR / audio_fname).write_bytes(audio_data)
 
     # Duration via mutagen (audio only — mutagen doesn't read video containers
@@ -294,18 +355,26 @@ async def upload_track(
         except Exception:
             pass
 
+    if storage.enabled():
+        storage.put(f'tracks/{audio_fname}', audio_data, _mime(audio_fname, MEDIA_MIME))
+        (TRACKS_DIR / audio_fname).unlink(missing_ok=True)
+
     # Cover
     cover_fname = ''
     if cover and cover.filename:
         cext = Path(cover.filename).suffix.lower()
         if cext in IMAGE_MIME:
             cover_fname = f"cover_{user['id']}_{uuid.uuid4().hex[:8]}{cext}"
-            (COVERS_DIR / cover_fname).write_bytes(await cover.read())
+            cover_data = await cover.read()
+            if storage.enabled():
+                storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
+            else:
+                (COVERS_DIR / cover_fname).write_bytes(cover_data)
 
     tid = db.create_track(
         user['id'], title.strip(), artist.strip(), album.strip(),
         genre.strip(), description.strip(), audio_fname, cover_fname, duration,
-        media_type
+        media_type, publish_at=_parse_publish_at(publish_at)
     )
 
     # Credited artists + revenue split. `collaborators` is a JSON list of
@@ -332,6 +401,12 @@ async def upload_track(
         raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
     db.set_track_artists(tid, user['id'], round(100.0 - total, 2), collabs)
 
+    # Kick off the 480p 'data saver' rendition in the background (videos only).
+    # Not with R2 (no local file for ffmpeg) — the original is served instead.
+    if media_type == 'video' and not storage.enabled():
+        db.set_sd_status(tid, 'pending')
+        transcode.enqueue(tid)
+
     return db.get_track(tid, viewer_id=user['id'])
 
 @app.delete("/api/tracks/{track_id}")
@@ -342,6 +417,9 @@ def delete_track(track_id: int, user=Depends(require_user)):
         raise HTTPException(403)
     files = db.delete_track(track_id)
     if files:
+        if storage.enabled():
+            if files.get('filename'): storage.delete(f"tracks/{files['filename']}")
+            if files.get('cover'):    storage.delete(f"covers/{files['cover']}")
         for key, folder in [('filename', TRACKS_DIR), ('cover', COVERS_DIR)]:
             if files.get(key):
                 try: (folder / files[key]).unlink(missing_ok=True)
@@ -349,21 +427,31 @@ def delete_track(track_id: int, user=Depends(require_user)):
     return {"ok": True}
 
 @app.get("/api/tracks/{track_id}/stream")
-async def stream_track(track_id: int, request: Request, dl: int = 0):
+async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = '', count: int = 1):
     t = db.get_track(track_id)
     if not t: raise HTTPException(404)
-    path = TRACKS_DIR / t['filename']
-    if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
-    # dl=1 => saving for offline; don't count that as a play. The play is
-    # counted later, when the downloaded file is actually played (via sync).
-    if not dl:
+    # q=sd -> serve the 480p 'data saver' rendition if it's ready, else original.
+    fname = t['filename']
+    if q == 'sd' and t.get('sd_status') == 'ready' and t.get('sd_file'):
+        fname = t['sd_file']
+    # dl=1 => saving for offline; count=0 => a quality switch / re-request.
+    # Neither should add a view; the play is counted once on the first load.
+    if not dl and count:
         db.increment_plays(track_id)
-    return _stream(path, request, _mime(t['filename'], MEDIA_MIME))
+    # R2: hand the client a presigned url and let it stream straight from R2
+    # (range requests + zero bandwidth on this server).
+    if storage.enabled():
+        return RedirectResponse(storage.presigned_url(f'tracks/{fname}'), status_code=302)
+    path = TRACKS_DIR / fname
+    if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
+    return _stream(path, request, _mime(fname, MEDIA_MIME))
 
 @app.get("/api/tracks/{track_id}/cover")
 def track_cover(track_id: int):
     t = db.get_track(track_id)
     if not t or not t.get('cover'): raise HTTPException(404)
+    if storage.enabled():
+        return RedirectResponse(storage.presigned_url(f"covers/{t['cover']}"), status_code=302)
     path = COVERS_DIR / t['cover']
     if not path.exists(): raise HTTPException(404)
     return FileResponse(str(path), media_type=_mime(t['cover'], IMAGE_MIME))
@@ -373,35 +461,108 @@ def track_share_image(track_id: int):
     """Artwork for social link previews. Always returns an image — falls back
     to the app icon — because a preview with no image looks broken.
 
-    Served as a small cached JPEG: full-size covers are megabytes, and the
-    tunnel is slow enough that WhatsApp's crawler gives up before fetching one,
-    which silently kills the preview."""
+    Served small so WhatsApp's crawler (which gives up on multi-MB covers over
+    the slow tunnel) actually fetches it. Served by this server on purpose —
+    crawlers need it inline, and it's tiny."""
+    import io
     t = db.get_track(track_id)
-    src = None
+    src_bytes = None
     if t and t.get('cover'):
-        p = COVERS_DIR / t['cover']
-        if p.exists():
-            src = p
-    if src is None:
-        src = BASE_DIR.parent / 'frontend' / 'assets' / 'icon-only.png'
-    if not src.exists():
-        raise HTTPException(404)
-
-    cache = SHARE_IMG_DIR / f"share_{track_id}.jpg"
-    if not cache.exists() or cache.stat().st_mtime < src.stat().st_mtime:
-        try:
-            from PIL import Image
-            im = Image.open(src).convert('RGB')
-            im.thumbnail((600, 600), Image.LANCZOS)
-            im.save(str(cache), 'JPEG', quality=82, optimize=True)
-        except Exception:
-            return FileResponse(str(src))   # resizing failed: send the original
-    return FileResponse(str(cache), media_type='image/jpeg')
+        if storage.enabled():
+            try: src_bytes = storage.get_bytes(f"covers/{t['cover']}")
+            except Exception: src_bytes = None
+        else:
+            p = COVERS_DIR / t['cover']
+            if p.exists(): src_bytes = p.read_bytes()
+    if src_bytes is None:
+        icon = BASE_DIR.parent / 'frontend' / 'assets' / 'icon-only.png'
+        if not icon.exists(): raise HTTPException(404)
+        src_bytes = icon.read_bytes()
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(src_bytes)).convert('RGB')
+        im.thumbnail((600, 600), Image.LANCZOS)
+        buf = io.BytesIO(); im.save(buf, 'JPEG', quality=82, optimize=True)
+        return Response(content=buf.getvalue(), media_type='image/jpeg')
+    except Exception:
+        return Response(content=src_bytes)   # resizing failed: send the original
 
 @app.post("/api/tracks/{track_id}/like")
 def like_track(track_id: int, user=Depends(require_user)):
     liked, count = db.toggle_like(user['id'], track_id)
+    if liked:
+        t = db.get_track(track_id)
+        if t:
+            db.add_notification(t['user_id'], user['id'], 'like_track', track_id, None, t['title'])
     return {"liked": liked, "like_count": count}
+
+# ── Comments ─────────────────────────────────────────────────────────────────────
+
+class CommentBody(BaseModel):
+    text: str
+    parent_id: Optional[int] = None
+
+@app.get("/api/tracks/{track_id}/comments")
+def list_comments(track_id: int, current=Depends(get_current_user)):
+    return db.get_comments(track_id, viewer_id=current['id'] if current else None)
+
+@app.post("/api/tracks/{track_id}/comments", status_code=201)
+def add_comment(track_id: int, body: CommentBody, user=Depends(require_user)):
+    text = (body.text or '').strip()
+    if not text:
+        raise HTTPException(400, "El comentario no puede estar vacío")
+    text = text[:1000]
+    track = db.get_track(track_id)
+    if not track:
+        raise HTTPException(404, "Contenido no encontrado")
+
+    comment = db.add_comment(track_id, user['id'], text, parent_id=body.parent_id)
+
+    # Notify the right people (never yourself; add_notification guards that).
+    if body.parent_id:
+        parent = db.get_comment(body.parent_id)
+        if parent:
+            db.add_notification(parent['user_id'], user['id'], 'reply', track_id, comment['id'], text)
+        # Also let the content owner know, unless they're the one being replied to.
+        if not parent or parent['user_id'] != track['user_id']:
+            db.add_notification(track['user_id'], user['id'], 'comment', track_id, comment['id'], text)
+    else:
+        db.add_notification(track['user_id'], user['id'], 'comment', track_id, comment['id'], text)
+
+    return comment
+
+@app.delete("/api/comments/{comment_id}", status_code=204)
+def delete_comment(comment_id: int, user=Depends(require_user)):
+    c = db.get_comment(comment_id)
+    if not c:
+        raise HTTPException(404)
+    # A comment can be removed by its author or an admin.
+    if c['user_id'] != user['id'] and not user['is_admin']:
+        raise HTTPException(403, "No puedes borrar este comentario")
+    db.delete_comment(comment_id)
+
+@app.post("/api/comments/{comment_id}/like")
+def like_comment(comment_id: int, user=Depends(require_user)):
+    c = db.get_comment(comment_id)
+    if not c:
+        raise HTTPException(404)
+    liked, count = db.toggle_comment_like(user['id'], comment_id)
+    if liked:
+        db.add_notification(c['user_id'], user['id'], 'like_comment', c['track_id'], comment_id, c['text'])
+    return {"liked": liked, "like_count": count}
+
+# ── Notifications ────────────────────────────────────────────────────────────────
+
+@app.get("/api/notifications")
+def notifications(user=Depends(require_user)):
+    return {
+        "items": db.get_notifications(user['id']),
+        "unread": db.count_unread_notifications(user['id']),
+    }
+
+@app.post("/api/notifications/read", status_code=204)
+def notifications_read(user=Depends(require_user)):
+    db.mark_notifications_read(user['id'])
 
 # ── Offline play/view sync ──────────────────────────────────────────────────────
 
@@ -419,6 +580,16 @@ def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
     # Idempotent: dedupes on client_event_id so retries don't double-count.
     applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
     return {"applied": applied, "received": len(body.events)}
+
+# ── Explore ─────────────────────────────────────────────────────────────────────
+
+@app.get("/api/genres")
+def list_genres():
+    return db.get_genres()
+
+@app.get("/api/artists")
+def list_artists(limit: int = 200):
+    return db.get_artists(limit=min(max(limit, 1), 500))
 
 # ── Collaborations ──────────────────────────────────────────────────────────────
 
@@ -487,6 +658,8 @@ def register_download(track_id: int, user=Depends(require_user)):
 
 @app.get("/api/avatars/{fname}")
 def get_avatar(fname: str):
+    if storage.enabled():
+        return RedirectResponse(storage.presigned_url(f'avatars/{fname}'), status_code=302)
     path = AVATARS_DIR / fname
     if not path.exists(): raise HTTPException(404)
     return FileResponse(str(path), media_type=_mime(fname, IMAGE_MIME))
@@ -532,7 +705,11 @@ async def request_subscription(
     if ext not in IMAGE_MIME:
         raise HTTPException(400, "El recibo debe ser una imagen (JPG, PNG o WEBP)")
     fname = f"receipt_{user['id']}_{uuid.uuid4().hex}{ext}"
-    (RECEIPTS_DIR / fname).write_bytes(await receipt.read())
+    receipt_data = await receipt.read()
+    if storage.enabled():
+        storage.put(f'receipts/{fname}', receipt_data, IMAGE_MIME.get(ext))
+    else:
+        (RECEIPTS_DIR / fname).write_bytes(receipt_data)
     rid = db.create_sub_request(user['id'], plan, note.strip(), fname)
     return {"id": rid, "status": "pending", "plan": plan}
 
@@ -591,6 +768,14 @@ def admin_sub_receipt(req_id: int, user=Depends(require_admin)):
     req = db.get_sub_request(req_id)
     if not req or not req.get('receipt'):
         raise HTTPException(404, "Esta solicitud no tiene recibo")
+    # Proxied (not redirected) so the admin's authenticated blob-fetch keeps
+    # working; receipts are tiny and admin-only, so bandwidth is negligible.
+    if storage.enabled():
+        try:
+            data = storage.get_bytes(f"receipts/{req['receipt']}")
+        except Exception:
+            raise HTTPException(404, "Archivo de recibo no encontrado")
+        return Response(content=data, media_type=_mime(req['receipt'], IMAGE_MIME))
     path = RECEIPTS_DIR / req['receipt']
     if not path.exists():
         raise HTTPException(404, "Archivo de recibo no encontrado")
@@ -623,6 +808,9 @@ APK_PATH = BASE_DIR.parent / 'dist-apk' / 'EG-Music.apk'
 
 @app.get("/download/eg-music.apk")
 def download_apk():
+    # With R2, the APK lives there too (so it works on hosts without local disk).
+    if storage.enabled() and storage.exists('apk/EG-Music.apk'):
+        return RedirectResponse(storage.presigned_url('apk/EG-Music.apk'), status_code=302)
     if not APK_PATH.exists():
         raise HTTPException(404, "APK no disponible")
     return FileResponse(
