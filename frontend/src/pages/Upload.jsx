@@ -10,6 +10,8 @@ export default function Upload() {
   const [form, setForm] = useState({ title:'', artist: user?.display_name || '', album:'', genre:'', description:'' })
   const [mediaFile, setMediaFile] = useState(null)
   const [collabs, setCollabs] = useState([])
+  const [scheduled, setScheduled] = useState(false)
+  const [publishAt, setPublishAt] = useState('')
   const isVideo = mediaFile && /\.(mp4|webm|mov)$/i.test(mediaFile.name)
   const [coverFile, setCoverFile] = useState(null)
   const [coverPreview, setCoverPreview] = useState(null)
@@ -69,6 +71,8 @@ export default function Upload() {
     if (bad) { setError(`Pon un porcentaje entre 1 y 99 para ${bad.display_name || bad.username}`); return }
     const used = collabs.reduce((n, c) => n + Number(c.percent), 0)
     if (used >= 100) { setError('Los porcentajes de los colaboradores deben sumar menos de 100%'); return }
+    if (scheduled && !publishAt) { setError('Elige la fecha y hora de publicación'); return }
+    if (scheduled && new Date(publishAt) <= new Date()) { setError('La fecha de publicación debe ser en el futuro'); return }
     setLoading(true); setError('')
     try {
       const fd = new FormData()
@@ -82,6 +86,7 @@ export default function Upload() {
       ))
       fd.append('audio',       mediaFile)
       if (coverFile) fd.append('cover', coverFile)
+      if (scheduled && publishAt) fd.append('publish_at', new Date(publishAt).toISOString())
       const track = await uploadTrack(fd)
       await refreshUser()
       navigate(`/user/${user.id}`)
@@ -144,6 +149,26 @@ export default function Upload() {
           ownerName={user.display_name || user.username}
         />
 
+        {/* Programar publicación */}
+        <div style={s.schedBox}>
+          <label style={s.schedToggle}>
+            <input type="checkbox" checked={scheduled}
+              onChange={e => setScheduled(e.target.checked)} />
+            <span style={{fontWeight:600,fontSize:14}}>⏳ Programar publicación para más tarde</span>
+          </label>
+          {scheduled && (
+            <div style={{marginTop:12}}>
+              <input className="input" type="datetime-local" value={publishAt}
+                min={new Date(Date.now() + 60000).toISOString().slice(0,16)}
+                onChange={e => setPublishAt(e.target.value)} style={{maxWidth:280}} />
+              <p style={{fontSize:12,color:'var(--text3)',marginTop:8}}>
+                Quedará oculta al público hasta esa fecha. Tú la verás en tu perfil como “Programada”,
+                y podrás publicarla antes cuando quieras.
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Audio or video file */}
         <div style={s.fileBox}>
           <label style={s.fileLabel}>
@@ -162,7 +187,7 @@ export default function Upload() {
         </div>
 
         <button className="btn-primary" type="submit" disabled={loading} style={{alignSelf:'flex-start',padding:'11px 28px'}}>
-          {loading ? 'Subiendo...' : isVideo ? 'Publicar video' : 'Publicar canción'}
+          {loading ? 'Subiendo...' : scheduled ? 'Programar publicación' : isVideo ? 'Publicar video' : 'Publicar canción'}
         </button>
       </form>
     </div>
@@ -185,4 +210,6 @@ const s = {
   coverPlaceholder:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'},
   fileBox: {background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'},
   fileLabel:{display:'flex',alignItems:'center',gap:14,padding:'16px 20px',cursor:'pointer'},
+  schedBox: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'14px 16px'},
+  schedToggle: {display:'flex',alignItems:'center',gap:10,cursor:'pointer'},
 }

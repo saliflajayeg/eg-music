@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider }   from './context/AuthContext'
-import { PlayerProvider } from './context/PlayerContext'
+import { AuthProvider }  from './context/AuthContext'
+import { MediaProvider } from './context/MediaContext'
 import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
-import Player    from './components/Player'
 import Home      from './pages/Home'
+import Explore   from './pages/Explore'
 import Login     from './pages/Login'
 import Register  from './pages/Register'
 import Profile   from './pages/Profile'
@@ -25,13 +25,14 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <PlayerProvider>
+      <MediaProvider>
         <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)' }}>
           <div className="flag-bar" />
           <Navbar />
-          <div style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
+          <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', paddingBottom:'var(--player-h)' }}>
             <Routes>
               <Route path="/"          element={<Home />} />
+              <Route path="/explore"   element={<Explore />} />
               <Route path="/login"     element={<Login />} />
               <Route path="/register"  element={<Register />} />
               <Route path="/search"    element={<Search />} />
@@ -47,9 +48,8 @@ export default function App() {
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>
-          <Player />
         </div>
-      </PlayerProvider>
+      </MediaProvider>
     </AuthProvider>
   )
 }

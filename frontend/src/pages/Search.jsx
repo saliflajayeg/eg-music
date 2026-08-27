@@ -76,7 +76,7 @@ const s = {
   },
   grid: {
     display:'grid',
-    gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))',
-    gap:12,
+    gridTemplateColumns:'repeat(auto-fill, minmax(240px,1fr))',
+    gap:'20px 16px',
   },
 }

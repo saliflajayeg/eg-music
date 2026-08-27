@@ -4,12 +4,13 @@ import { Link } from 'react-router-dom'
 /**
  * The credited artists for a track: "Ana · Luis · Marta", each linking to their
  * profile. Falls back to the uploader for tracks with no collaboration data.
- * `showSplit` adds each artist's percentage (used on the song page).
+ * (Revenue-split percentages are kept in the DB for the admin earnings report
+ * but never shown to listeners on a song.)
  */
-export default function ArtistLine({ track, style, showSplit = false, onNavigate }) {
+export default function ArtistLine({ track, style, onNavigate }) {
   const artists = (track.artists && track.artists.length)
     ? track.artists
-    : [{ user_id: track.user_id, username: track.username, display_name: track.display_name, percent: 100 }]
+    : [{ user_id: track.user_id, username: track.username, display_name: track.display_name }]
 
   return (
     <span style={style}>
@@ -23,9 +24,6 @@ export default function ArtistLine({ track, style, showSplit = false, onNavigate
           >
             {a.display_name || a.username}
           </Link>
-          {showSplit && a.percent != null && (
-            <span style={{color:'var(--text3)', fontSize:'.85em'}}> {Math.round(a.percent)}%</span>
-          )}
         </React.Fragment>
       ))}
     </span>

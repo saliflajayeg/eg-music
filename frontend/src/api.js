@@ -81,14 +81,29 @@ export const getUserTracks  = id  => get(`/users/${id}/tracks`)
 export const toggleFollow   = id  => post(`/users/${id}/follow`)
 
 // Tracks
-export const getFeed          = (offset=0, limit=100) => get(`/tracks?offset=${offset}&limit=${limit}`)
+export const getFeed          = (offset=0, limit=100, sort='recent', genre='') =>
+  get(`/tracks?offset=${offset}&limit=${limit}&sort=${sort}${genre ? `&genre=${encodeURIComponent(genre)}` : ''}`)
+export const getTopTracks     = (limit=10) => get(`/tracks/top?limit=${limit}`)
+export const getGenres        = ()         => get('/genres')
+export const getArtists       = ()         => get('/artists')
 export const getFollowingFeed = ()         => get('/tracks/following')
 export const getLikedTracks   = ()         => get('/tracks/liked')
 export const getTrack         = id         => get(`/tracks/${id}`)
 export const uploadTrack      = fd         => postForm('/tracks', fd)
 export const deleteTrack      = id         => del(`/tracks/${id}`)
+export const scheduleTrack    = (id, publish_at) => patch(`/tracks/${id}/schedule`, { publish_at })
 export const likeTrack        = id         => post(`/tracks/${id}/like`)
 export const search           = q          => get(`/search?q=${encodeURIComponent(q)}`)
+
+// Comments
+export const getComments      = id                    => get(`/tracks/${id}/comments`)
+export const addComment       = (id, text, parentId)  => post(`/tracks/${id}/comments`, { text, parent_id: parentId || null })
+export const deleteComment    = id                    => del(`/comments/${id}`)
+export const likeComment      = id                    => post(`/comments/${id}/like`)
+
+// Notifications
+export const getNotifications      = () => get('/notifications')
+export const markNotificationsRead = () => post('/notifications/read')
 
 // Collaborations
 export const searchArtists    = q          => get(`/artists/search?q=${encodeURIComponent(q)}`)
@@ -125,5 +140,15 @@ export const adminSaveSettings = body         => patch('/admin/settings', body)
 
 // URLs (resolved against whatever backend we discovered)
 export const trackCoverUrl  = id    => api(`/tracks/${id}/cover`)
-export const trackStreamUrl = id    => api(`/tracks/${id}/stream`)
+// opts: { q:'sd', count:0 }. Bare call stays identical (original quality, counts a play)
+// so offline downloads and existing callers are unaffected.
+export const trackStreamUrl = (id, opts = {}) => {
+  const p = []
+  if (opts.q)          p.push(`q=${opts.q}`)
+  if (opts.count === 0) p.push('count=0')
+  const qs = p.length ? `?${p.join('&')}` : ''
+  return api(`/tracks/${id}/stream${qs}`)
+}
 export const avatarUrl      = fname => fname ? api(`/avatars/${fname}`) : null
+// The Android app download, served by the backend (not under /api).
+export const apkUrl         = ()    => backendBase() + '/download/eg-music.apk'
