@@ -12,34 +12,6 @@ import Comments from './Comments'
 const HEADER_H = 52
 const _resumeAt = {}   // last position per track, kept across src/quality swaps
 
-// Equalizer keyframes for the audio frame (flag colors). Injected once; the
-// reduced-motion guard can't live in an inline style so it goes here.
-if (typeof document !== 'undefined' && !document.getElementById('eg-player-css')) {
-  const st = document.createElement('style')
-  st.id = 'eg-player-css'
-  st.textContent = '@keyframes egEq{0%,100%{transform:scaleY(.28)}50%{transform:scaleY(1)}}' +
-    '.eg-eq span{transform-origin:bottom}' +
-    '@media (prefers-reduced-motion:reduce){.eg-eq span{animation:none!important;transform:scaleY(.55)}}'
-  document.head.appendChild(st)
-}
-
-// A little "now playing" life for audio, so a song never feels lesser than a
-// video at the same frame size. Bars use the EG flag palette.
-const _EQ = [0, .18, .32, .06, .24, .38, .12, .28]
-function Equalizer() {
-  return (
-    <div className="eg-eq" aria-hidden="true"
-      style={{ position:'absolute', left:0, right:0, bottom:'6%', zIndex:2, height:'14%',
-               display:'flex', gap:4, alignItems:'flex-end', justifyContent:'center', pointerEvents:'none', opacity:.9 }}>
-      {_EQ.map((d, i) => (
-        <span key={i} style={{ width:5, height:'100%', borderRadius:4,
-          background: i % 3 === 0 ? 'var(--accent)' : i % 3 === 1 ? 'var(--blue)' : 'var(--gold)',
-          animation:`egEq 1.05s ease-in-out ${d}s infinite` }} />
-      ))}
-    </div>
-  )
-}
-
 function connectionPrefersSd() {
   try {
     const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection
@@ -98,17 +70,6 @@ export default function MediaPlayer() {
     setLiked(!!current.liked_by_me); setLikeCount(current.like_count || 0)
     if (isNative()) isDownloaded(current.id).then(d => setDl(d ? 'done' : 'none')); else setDl('none')
   }, [current.id])
-
-  // Navigating (tapping Explorar, a link, search…) minimizes the player so you
-  // land on the new page — but not right after opening (guards deep-link opens).
-  const lastPathRef = useRef(location.pathname)
-  useEffect(() => {
-    if (location.pathname !== lastPathRef.current) {
-      lastPathRef.current = location.pathname
-      if (expanded && Date.now() - media._openedAtRef.current > 1200) collapse()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname])
 
   // Keep the app navbar visible when expanded (feels like YouTube's page, not a
   // takeover): measure where the navbar ends and start the player below it.
@@ -339,8 +300,7 @@ export default function MediaPlayer() {
             <div style={{ position:'absolute', inset:0, backgroundImage:`url(${trackCoverUrl(current.id)})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(28px) brightness(.45)', transform:'scale(1.2)' }} />
             <div style={{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(6,10,8,.2), rgba(6,10,8,.6))' }} />
             <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
-              style={{ position:'absolute', top:'42%', left:'50%', transform:'translate(-50%,-50%)', height:'64%', aspectRatio:'1', objectFit:'cover', borderRadius:12, boxShadow:'0 16px 40px -12px rgba(0,0,0,.75)' }} />
-            {isPlaying && !showCtl && <Equalizer />}
+              style={{ position:'absolute', top:'44%', left:'50%', transform:'translate(-50%,-50%)', height:'66%', aspectRatio:'1', objectFit:'cover', borderRadius:12, boxShadow:'0 16px 40px -12px rgba(0,0,0,.75)' }} />
           </>
       )}
       {frameControls}

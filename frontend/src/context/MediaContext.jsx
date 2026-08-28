@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { getFeed } from '../api'
 import MediaPlayer from '../components/MediaPlayer'
 
@@ -12,14 +13,19 @@ export function MediaProvider({ children }) {
   const [queue, setQueue]         = useState([])
   const [index, setIndex]         = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [expanded, setExpanded]   = useState(false)
   const [shuffle, setShuffle]     = useState(false)
   const [repeat, setRepeat]       = useState('off')   // 'off' | 'all' | 'one'
   const apiRef = useRef({})        // imperative controls registered by MediaPlayer
   const primedRef = useRef(false)  // a random song is cued, waiting for a gesture
-  const openedAtRef = useRef(0)    // when the current item was opened (guards nav-collapse)
+  const openedAtRef = useRef(0)    // when the current item was opened
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const current = index >= 0 && index < queue.length ? queue[index] : null
+  // The route IS the source of truth for "expanded": the full player lives at
+  // its own page (/watch/:id). Minimizing just navigates away; the persistent
+  // <video> (rendered outside <Routes>) keeps playing in the bottom bar.
+  const expanded = location.pathname.startsWith('/watch/')
 
   const play = useCallback((track, list) => {
     const q = (list && list.length) ? list : [track]
@@ -28,10 +34,13 @@ export function MediaProvider({ children }) {
     openedAtRef.current = Date.now()
     setQueue(q)
     setIndex(i)
-    // Videos open full screen (you want to watch); songs stay in the bar so you
-    // can keep browsing. Either way it's the same player.
-    setExpanded(track.media_type === 'video')
-  }, [])
+    // Videos open their own page (you want to watch); songs stay in the bar so
+    // you can keep browsing. Replace the entry when already on a watch page so
+    // "minimize" goes back to where you were, not to the previous track.
+    if (track.media_type === 'video') {
+      navigate('/watch/' + track.id, { replace: location.pathname.startsWith('/watch/'), state: { fromApp: true } })
+    }
+  }, [navigate, location.pathname])
 
   const togglePlay = useCallback(() => apiRef.current.toggle?.(), [])
   const seek       = useCallback(t => apiRef.current.seek?.(t), [])
@@ -46,7 +55,10 @@ export function MediaProvider({ children }) {
     if (apiRef.current.prev) apiRef.current.prev()
     else setIndex(i => (i > 0 ? i - 1 : i))
   }, [])
-  const close = useCallback(() => { setQueue([]); setIndex(-1); setExpanded(false) }, [])
+  const close = useCallback(() => {
+    setQueue([]); setIndex(-1)
+    if (location.pathname.startsWith('/watch/')) navigate('/')
+  }, [navigate, location.pathname])
 
   // Radio-style: cue a random song when the app opens. Browsers block autoplay
   // with sound until a gesture, so we start on the first interaction.
@@ -59,7 +71,7 @@ export function MediaProvider({ children }) {
       if (!songs.length) return
       const pick = songs[Math.floor(Math.random() * songs.length)]
       primedRef.current = true
-      setQueue([pick]); setIndex(0); setExpanded(false)
+      setQueue([pick]); setIndex(0)
     }).catch(() => {})
 
     const kick = () => {
@@ -87,8 +99,10 @@ export function MediaProvider({ children }) {
     play, togglePlay, next, prev, seek, close,
     toggleShuffle: () => setShuffle(s => !s),
     cycleRepeat: () => setRepeat(r => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')),
-    expand: () => setExpanded(true),
-    collapse: () => setExpanded(false),
+    // Open the full player as its own page; minimize returns to where you were
+    // (a real in-app back), or home if the watch page was opened directly.
+    expand: () => { if (current) navigate('/watch/' + current.id, { state: { fromApp: true } }) },
+    collapse: () => { if (location.state && location.state.fromApp) navigate(-1); else navigate('/') },
     // internals for MediaPlayer
     _apiRef: apiRef, _setIsPlaying: setIsPlaying, _setIndex: setIndex, _primedRef: primedRef, _openedAtRef: openedAtRef,
   }
