@@ -12,6 +12,34 @@ import Comments from './Comments'
 const HEADER_H = 52
 const _resumeAt = {}   // last position per track, kept across src/quality swaps
 
+// Equalizer keyframes for the audio frame (flag colors). Injected once; the
+// reduced-motion guard can't live in an inline style so it goes here.
+if (typeof document !== 'undefined' && !document.getElementById('eg-player-css')) {
+  const st = document.createElement('style')
+  st.id = 'eg-player-css'
+  st.textContent = '@keyframes egEq{0%,100%{transform:scaleY(.28)}50%{transform:scaleY(1)}}' +
+    '.eg-eq span{transform-origin:bottom}' +
+    '@media (prefers-reduced-motion:reduce){.eg-eq span{animation:none!important;transform:scaleY(.55)}}'
+  document.head.appendChild(st)
+}
+
+// A little "now playing" life for audio, so a song never feels lesser than a
+// video at the same frame size. Bars use the EG flag palette.
+const _EQ = [0, .18, .32, .06, .24, .38, .12, .28]
+function Equalizer() {
+  return (
+    <div className="eg-eq" aria-hidden="true"
+      style={{ position:'absolute', left:0, right:0, bottom:'6%', zIndex:2, height:'14%',
+               display:'flex', gap:4, alignItems:'flex-end', justifyContent:'center', pointerEvents:'none', opacity:.9 }}>
+      {_EQ.map((d, i) => (
+        <span key={i} style={{ width:5, height:'100%', borderRadius:4,
+          background: i % 3 === 0 ? 'var(--accent)' : i % 3 === 1 ? 'var(--blue)' : 'var(--gold)',
+          animation:`egEq 1.05s ease-in-out ${d}s infinite` }} />
+      ))}
+    </div>
+  )
+}
+
 function connectionPrefersSd() {
   try {
     const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection
@@ -205,18 +233,24 @@ export default function MediaPlayer() {
   // so the app chrome stays visible — the "same window" YouTube feel.
   const TOP = topOffset
   const HEAD = TOP + HEADER_H          // player sub-header bottom
-  const mediaH = isVideo ? '52vh' : '38vh'
-  const mediaW = isVideo ? `calc(${mediaH} * 16 / 9)` : mediaH
+  // ── "Escenario" (YouTube-style) layout ──────────────────────────────────
+  // ONE media frame, always 16:9 and the same size whether it's audio or
+  // video, centered inside a max-width stage with the up-next rail alongside.
+  const RAILW = 344, GAP = 28
+  const STAGE      = 'min(1180px, calc(100vw - 48px))'
+  const STAGE_LEFT = 'max(24px, calc((100vw - 1180px) / 2))'
+  const MAIN_W     = `calc(${STAGE} - ${RAILW + GAP}px)`
+  const mediaH  = `min(calc((${MAIN_W}) * 0.5625), 56vh)`   // desktop, height-capped
+  const mediaW  = `calc(${mediaH} * 16 / 9)`                // 16:9, same for both
+  const mMediaH = 'min(56.25vw, 46vh)'                      // mobile, full-width 16:9
 
   // The persistent media surface (one <video>, never remounts). Fixed in both
   // modes so its parent never changes; only its rect animates.
   const frameStyle = !expanded
     ? { position:'fixed', bottom:(isMobile?12:20), left:(isMobile?10:12), width:(isMobile?72:107), height:(isMobile?40:60), borderRadius:6, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
     : wide
-      ? { position:'fixed', top:HEAD+16, left:24, height:mediaH, width:mediaW, borderRadius:isVideo?8:14, overflow:'hidden', background:isVideo?'#000':'var(--bg3)', zIndex:160 }
-      : (isVideo
-          ? { position:'fixed', top:HEAD, left:0, right:0, width:'100%', height:'min(56.25vw, 52vh)', background:'#000', zIndex:160 }
-          : { position:'fixed', top:HEAD+24, left:'50%', transform:'translateX(-50%)', width:'min(66vw, 280px)', height:'min(66vw, 280px)', borderRadius:14, overflow:'hidden', background:'var(--bg3)', zIndex:160 })
+      ? { position:'fixed', top:HEAD+18, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160 }
+      : { position:'fixed', top:HEAD, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160 }
 
   const mediaSurface = (
     <div key="media-surface" ref={wrapRef} style={frameStyle}
@@ -224,9 +258,17 @@ export default function MediaPlayer() {
       <video ref={videoRef} src={src || undefined} playsInline
         style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#000' }}
         onLoadedMetadata={onLoadedMeta} />
-      {isAudioCover(isVideo, current) && (
-        <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
-          style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
+      {/* Audio fills the SAME 16:9 frame with its cover — never a shrunken square. */}
+      {!isVideo && (!expanded
+        ? <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
+            style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
+        : <>
+            <div style={{ position:'absolute', inset:0, backgroundImage:`url(${trackCoverUrl(current.id)})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(28px) brightness(.45)', transform:'scale(1.2)' }} />
+            <div style={{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(6,10,8,.2), rgba(6,10,8,.6))' }} />
+            <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
+              style={{ position:'absolute', top:'42%', left:'50%', transform:'translate(-50%,-50%)', height:'64%', aspectRatio:'1', objectFit:'cover', borderRadius:12, boxShadow:'0 16px 40px -12px rgba(0,0,0,.75)' }} />
+            {isPlaying && <Equalizer />}
+          </>
       )}
     </div>
   )
@@ -263,7 +305,7 @@ export default function MediaPlayer() {
     </div>
   )
 
-  const contentPad = isVideo ? 'calc(min(56.25vw, 52vh) + 16px)' : 'calc(min(66vw, 280px) + 96px)'
+  const contentPad = `calc(${mMediaH} + 18px)`
 
   const volumeControl = (
     <div style={s.volGroup}>
@@ -366,17 +408,17 @@ export default function MediaPlayer() {
         <button onClick={collapse} style={s.fsMinBtn} title="Minimizar">
           <IcoChevronDown />{!isMobile && <span>Minimizar</span>}
         </button>
-        <span style={s.fsHeaderTitle}>{isVideo ? 'Video' : 'Reproduciendo'}</span>
+        <span style={s.fsHeaderTitle}>{current.title}</span>
         <button onClick={close} style={s.fsIcon} title="Cerrar">✕</button>
       </div>
 
       {wide ? (
         <>
-          <div style={{ ...s.fsLeft, top: HEAD, width:`calc(${mediaW} + 48px)`, paddingTop:`calc(${mediaH} + 32px)` }}>
+          <div style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
             {infoBlock}
             {commentsBlock}
           </div>
-          <div style={{ ...s.fsRight, top: HEAD, left:`calc(${mediaW} + 72px)` }}>
+          <div style={{ ...s.fsRight, top: HEAD, left:`calc(${STAGE_LEFT} + ${MAIN_W} + ${GAP}px)`, width: RAILW }}>
             {upNextBlock}
           </div>
         </>
@@ -392,8 +434,6 @@ export default function MediaPlayer() {
     </>
   )
 }
-
-const isAudioCover = (isVideo, t) => !isVideo   // audio always shows its cover over the (silent) video frame
 
 function QItem({ label, active, disabled, onClick }) {
   return <button onClick={onClick} disabled={disabled} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:7, fontSize:13, background:'none', border:'none', cursor:'pointer', color: disabled?'var(--text3)':'#fff', fontWeight: active?700:400 }}><span style={{width:14,display:'inline-block'}}>{active?'✓':''}</span> {label}</button>
@@ -423,12 +463,12 @@ const s = {
   barVolSlider: { width:74, accentColor:'var(--accent)', cursor:'pointer' },
 
   fsHeader: { position:'fixed', top:0, left:0, right:0, height:HEADER_H, zIndex:165, background:'var(--bg)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, padding:'0 12px' },
-  fsHeaderTitle: { flex:1, fontSize:14, fontWeight:600, color:'var(--text2)' },
+  fsHeaderTitle: { flex:1, fontSize:14, fontWeight:600, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   fsIcon: { color:'var(--text2)', padding:6, background:'none', border:'none', cursor:'pointer', display:'flex' },
   fsMinBtn: { display:'flex', alignItems:'center', gap:6, color:'var(--text)', fontSize:13, fontWeight:600, background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:20, padding:'6px 12px 6px 8px', cursor:'pointer' },
   fsBody: { position:'fixed', top:HEADER_H, left:0, right:0, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 18px 40px', maxWidth:800, margin:'0 auto' },
-  fsLeft: { position:'fixed', top:HEADER_H, left:0, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 24px 40px' },
-  fsRight: { position:'fixed', top:HEADER_H, right:0, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'16px 20px 40px', borderLeft:'1px solid var(--border)' },
+  fsLeft: { position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 0 48px' },
+  fsRight: { position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'2px 0 48px' },
   fsTitle: { fontSize:20, fontWeight:700, marginBottom:8 },
   fsMeta: { display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', marginBottom:14 },
   fsArtist: { fontSize:14, color:'var(--accent2)', fontWeight:600 },
