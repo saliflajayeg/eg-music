@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useMedia } from '../context/MediaContext'
 import { useAuth } from '../context/AuthContext'
 import { useIsMobile } from '../hooks'
-import { trackStreamUrl, trackCoverUrl, likeTrack } from '../api'
+import { trackStreamUrl, trackCoverUrl, likeTrack, getFeed } from '../api'
 import { shareTrack } from '../share'
 import { localSrc, isDownloaded, queuePlay, isNative, downloadMedia, deleteDownload } from '../offline'
 import ArtistLine from './ArtistLine'
@@ -13,6 +13,15 @@ import AddToPlaylist from './AddToPlaylist'
 
 const HEADER_H = 52
 const _resumeAt = {}   // last position per track, kept across src/quality swaps
+
+// Hide the scroll panes' scrollbars so there's no line between the video and
+// the rail — they still scroll independently. Injected once.
+if (typeof document !== 'undefined' && !document.getElementById('eg-pane-css')) {
+  const st = document.createElement('style')
+  st.id = 'eg-pane-css'
+  st.textContent = '.eg-pane{scrollbar-width:none;-ms-overflow-style:none}.eg-pane::-webkit-scrollbar{width:0;height:0;display:none}'
+  document.head.appendChild(st)
+}
 
 function connectionPrefersSd() {
   try {
@@ -69,6 +78,7 @@ export default function MediaPlayer() {
   const hideTimer = useRef(null)
   const scrollRef = useRef(0)   // how far the page has scrolled (media slides with it)
   const paneRef   = useRef(null)
+  const [suggestions, setSuggestions] = useState([])   // similar tracks (same genre)
 
   const countedRef = useRef(false)
   const lastIdRef  = useRef(null)
@@ -80,6 +90,15 @@ export default function MediaPlayer() {
     scrollRef.current = 0
     if (paneRef.current) paneRef.current.scrollTop = 0
   }, [current.id, expanded])
+
+  // Similar songs for the rail: same genre first, else a general mix.
+  useEffect(() => {
+    let cancel = false
+    getFeed(0, 25, 'random', current.genre || '')
+      .then(list => { if (!cancel) setSuggestions((list || []).filter(t => t.id !== current.id)) })
+      .catch(() => { if (!cancel) setSuggestions([]) })
+    return () => { cancel = true }
+  }, [current.id, current.genre])
 
   // Like / download state per track.
   useEffect(() => {
@@ -398,10 +417,16 @@ export default function MediaPlayer() {
     </>
   )
 
+  // The rail: upcoming queue items if you're playing a list, otherwise similar
+  // songs (same genre). Clicking one plays it and keeps that list as the queue.
+  const queueUpcoming = queue.filter((_, i) => i !== index)
+  const railFromQueue = queueUpcoming.length > 0
+  const railSource = railFromQueue ? queue : suggestions
+  const railItems  = railFromQueue ? queueUpcoming : suggestions
   const upNextBlock = (
     <div style={s.upNext}>
       <div style={s.upHead}>
-        <span style={s.upTitle}>A continuación</span>
+        <span style={s.upTitle}>{railFromQueue ? 'A continuación' : 'Recomendadas'}</span>
         <div style={{ display:'flex', gap:2 }}>
           <button onClick={toggleShuffle} style={{ ...s.upCtl, color: shuffle ? 'var(--accent)' : 'var(--text3)' }} title={shuffle ? 'Aleatorio activado' : 'Reproducción aleatoria'}><IcoShuffle /></button>
           <button onClick={cycleRepeat} style={{ ...s.upCtl, color: repeat!=='off' ? 'var(--accent)' : 'var(--text3)' }} title={repeat==='one' ? 'Repetir esta' : repeat==='all' ? 'Repetir cola' : 'Repetir'}>
@@ -409,9 +434,9 @@ export default function MediaPlayer() {
           </button>
         </div>
       </div>
-      {queue.length > 1
-        ? queue.map((t, i) => i !== index && (
-            <button key={t.id} onClick={() => media.play(t, queue)} style={s.upRow}>
+      {railItems.length > 0
+        ? railItems.map(t => (
+            <button key={t.id} onClick={() => media.play(t, railSource)} style={s.upRow}>
               <img src={trackCoverUrl(t.id)} alt="" style={s.upThumb} onError={e=>{e.target.style.visibility='hidden'}} />
               <div style={{ minWidth:0, flex:1, textAlign:'left' }}>
                 <div style={s.upRowTitle}>{t.title}</div>
@@ -419,7 +444,7 @@ export default function MediaPlayer() {
               </div>
             </button>
           ))
-        : <p style={s.upEmpty}>Nada más en la cola por ahora.</p>}
+        : <p style={s.upEmpty}>No hay recomendaciones ahora mismo.</p>}
     </div>
   )
 
@@ -448,16 +473,16 @@ export default function MediaPlayer() {
 
       {wide ? (
         <>
-          <div ref={paneRef} onScroll={onPaneScroll} style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
+          <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
             {infoBlock}
             {commentsBlock}
           </div>
-          <div style={{ ...s.fsRight, top: HEAD, left:`calc(${STAGE_LEFT} + ${MAIN_W} + ${GAP}px)`, width: RAILW }}>
+          <div className="eg-pane" style={{ ...s.fsRight, top: HEAD, left:`calc(${STAGE_LEFT} + ${MAIN_W} + ${GAP}px)`, width: RAILW }}>
             {upNextBlock}
           </div>
         </>
       ) : (
-        <div ref={paneRef} onScroll={onPaneScroll} style={{ ...s.fsBody, top: HEAD, paddingTop: contentPad }}>
+        <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsBody, top: HEAD, paddingTop: contentPad }}>
           {infoBlock}
           {upNextBlock}
           {commentsBlock}
