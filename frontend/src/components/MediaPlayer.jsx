@@ -7,6 +7,7 @@ import { trackStreamUrl, trackCoverUrl, likeTrack } from '../api'
 import { shareTrack } from '../share'
 import { localSrc, isDownloaded, queuePlay, isNative, downloadMedia, deleteDownload } from '../offline'
 import ArtistLine from './ArtistLine'
+import ArtistHeader from './ArtistHeader'
 import Comments from './Comments'
 import AddToPlaylist from './AddToPlaylist'
 
@@ -26,6 +27,12 @@ function connectionPrefersSd() {
 const fmt = s => {
   if (!isFinite(s) || s < 0) s = 0
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
+const fmtCount = n => {
+  n = Number(n) || 0
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.0', '') + ' M'
+  if (n >= 1000)    return (n / 1000).toFixed(1).replace('.0', '') + ' mil'
+  return String(n)
 }
 
 export default function MediaPlayer() {
@@ -60,11 +67,19 @@ export default function MediaPlayer() {
   const [topOffset, setTopOffset] = useState(0)   // bottom of the app navbar; the expanded player sits below it
   const [showCtl, setShowCtl] = useState(true)    // video overlay controls auto-hide
   const hideTimer = useRef(null)
+  const scrollRef = useRef(0)   // how far the page has scrolled (media slides with it)
+  const paneRef   = useRef(null)
 
   const countedRef = useRef(false)
   const lastIdRef  = useRef(null)
   const localPlayedRef = useRef(false)
   const usingSd = isVideo && (quality === 'sd' || (quality === 'auto' && sdReady && (connectionPrefersSd() || stalls >= 2)))
+
+  // A new track (or re-opening the page) starts scrolled to the top.
+  useEffect(() => {
+    scrollRef.current = 0
+    if (paneRef.current) paneRef.current.scrollTop = 0
+  }, [current.id, expanded])
 
   // Like / download state per track.
   useEffect(() => {
@@ -226,11 +241,29 @@ export default function MediaPlayer() {
 
   // The persistent media surface (one <video>, never remounts). Fixed in both
   // modes so its parent never changes; only its rect animates.
+  // The media slides up with the page. Its top follows the scroll and the part
+  // that passes above the header line is clipped, so it tucks away like YouTube.
+  const baseTop = wide ? HEAD + 18 : HEAD
+  const frameTop = baseTop - scrollRef.current
+  const clipCut = Math.max(0, HEAD - frameTop)
+  const clip = clipCut > 0 ? `inset(${clipCut}px 0 0 0)` : 'none'
+
   const frameStyle = !expanded
     ? { position:'fixed', bottom:(isMobile?12:20), left:(isMobile?10:12), width:(isMobile?72:107), height:(isMobile?40:60), borderRadius:6, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
     : wide
-      ? { position:'fixed', top:HEAD+18, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160 }
-      : { position:'fixed', top:HEAD, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160 }
+      ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
+      : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
+
+  // Move the media with the scroll directly (no re-render) for a smooth slide.
+  function onPaneScroll(e) {
+    scrollRef.current = e.currentTarget.scrollTop
+    const w = wrapRef.current
+    if (!w || !expanded) return
+    const top = (wide ? HEAD + 18 : HEAD) - scrollRef.current
+    const cut = Math.max(0, HEAD - top)
+    w.style.top = top + 'px'
+    w.style.clipPath = cut > 0 ? `inset(${cut}px 0 0 0)` : 'none'
+  }
 
   // YouTube-style controls painted ON the frame (auto-hiding) — for BOTH audio
   // (over its cover) and video, so a song looks and works exactly like a video.
@@ -346,18 +379,21 @@ export default function MediaPlayer() {
     <>
       <h1 style={s.fsTitle}>{current.title}</h1>
       <div style={s.fsMeta}>
-        <ArtistLine track={current} style={s.fsArtist} showSplit={(current.artists||[]).length>1} />
+        <span style={s.fsViews2}>{isVideo?'👁':'▶'} {fmtCount(current.play_count)} {isVideo?'vistas':'reproducciones'}</span>
         {current.genre && <span style={s.fsGenre}>{current.genre}</span>}
-        <span style={s.fsViews}>{isVideo?'👁':'▶'} {current.play_count}</span>
       </div>
 
-      {/* Transport for BOTH audio and video now lives on the frame overlay. */}
-
-      <div style={s.fsActions}>
-        <button onClick={handleLike} style={{ ...s.act, color: liked?'var(--danger)':'var(--text2)' }}>{liked?'♥':'♡'} {likeCount>0?likeCount:''}</button>
-        <button onClick={handleShare} style={s.act}><IcoShare /> Compartir</button>
-        <span style={s.act}><AddToPlaylist trackId={current.id} /></span>
-        {isNative() && <button onClick={handleDownload} style={{ ...s.act, color:'var(--accent2)' }}>{dl==='busy'?'⏳':dl==='done'?'✓':'⬇'} {dl==='done'?'Descargado':'Descargar'}</button>}
+      {/* YouTube-style channel row: artist + follow, and action pills. */}
+      <div style={s.channelBar}>
+        <ArtistHeader track={current} />
+        <div style={s.pills}>
+          <button onClick={handleLike} style={{ ...s.pill, ...(liked ? s.pillLiked : {}) }} title="Me gusta">
+            {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : 'Me gusta'}
+          </button>
+          <button onClick={handleShare} style={s.pill}><IcoShare /> Compartir</button>
+          <span style={s.pill}><AddToPlaylist trackId={current.id} /></span>
+          {isNative() && <button onClick={handleDownload} style={s.pill}>{dl==='busy'?'⏳':dl==='done'?'✓':'⬇'} {dl==='done'?'Descargado':'Descargar'}</button>}
+        </div>
       </div>
     </>
   )
@@ -412,7 +448,7 @@ export default function MediaPlayer() {
 
       {wide ? (
         <>
-          <div style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
+          <div ref={paneRef} onScroll={onPaneScroll} style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
             {infoBlock}
             {commentsBlock}
           </div>
@@ -421,7 +457,7 @@ export default function MediaPlayer() {
           </div>
         </>
       ) : (
-        <div style={{ ...s.fsBody, top: HEAD, paddingTop: contentPad }}>
+        <div ref={paneRef} onScroll={onPaneScroll} style={{ ...s.fsBody, top: HEAD, paddingTop: contentPad }}>
           {infoBlock}
           {upNextBlock}
           {commentsBlock}
@@ -476,6 +512,11 @@ const s = {
   fsArtist: { fontSize:14, color:'var(--accent2)', fontWeight:600 },
   fsGenre: { fontSize:10, fontWeight:600, background:'var(--bg3)', color:'var(--text3)', padding:'2px 8px', borderRadius:10, letterSpacing:.5 },
   fsViews: { fontSize:13, color:'var(--text3)', marginLeft:'auto' },
+  fsViews2: { fontSize:13, color:'var(--text3)', fontWeight:500 },
+  channelBar: { display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginTop:14, paddingBottom:16, borderBottom:'1px solid var(--border)' },
+  pills: { display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' },
+  pill: { display:'flex', alignItems:'center', gap:6, background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:20, padding:'8px 15px', fontSize:13, fontWeight:600, color:'var(--text)', cursor:'pointer' },
+  pillLiked: { color:'var(--danger)' },
   seekWrap: { padding:'6px 0', cursor:'pointer' },
   seekTrack: { position:'relative', height:4, borderRadius:3, background:'var(--bg4)' },
   seekBuf: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'var(--border)' },
