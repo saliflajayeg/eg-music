@@ -85,6 +85,8 @@ export default function MediaPlayer() {
   const [likeCount, setLikeCount] = useState(current.like_count || 0)
   const [dl, setDl] = useState('none')
   const [topOffset, setTopOffset] = useState(0)   // bottom of the app navbar; the expanded player sits below it
+  const [showCtl, setShowCtl] = useState(true)    // video overlay controls auto-hide
+  const hideTimer = useRef(null)
 
   const countedRef = useRef(false)
   const lastIdRef  = useRef(null)
@@ -208,6 +210,22 @@ export default function MediaPlayer() {
   }
   function pickQuality(q) { setQuality(q); setStalls(0); setMenuOpen(false) }
 
+  // Video overlay controls: show on interaction, fade out ~2.8s into playback;
+  // always visible while paused.
+  function pokeControls() {
+    setShowCtl(true)
+    clearTimeout(hideTimer.current)
+    if (isVideo && isPlaying) hideTimer.current = setTimeout(() => { setShowCtl(false); setMenuOpen(false) }, 2800)
+  }
+  useEffect(() => {
+    if (!isVideo || !expanded) return
+    clearTimeout(hideTimer.current)
+    if (isPlaying) hideTimer.current = setTimeout(() => setShowCtl(false), 2800)
+    else setShowCtl(true)
+    return () => clearTimeout(hideTimer.current)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, isVideo, expanded, current.id])
+
   async function handleLike() {
     if (!user) { navigate('/login'); return }
     try { const r = await likeTrack(current.id); setLiked(r.liked); setLikeCount(r.like_count) } catch {}
@@ -252,9 +270,61 @@ export default function MediaPlayer() {
       ? { position:'fixed', top:HEAD+18, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160 }
       : { position:'fixed', top:HEAD, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160 }
 
+  // YouTube-style controls painted ON the video (auto-hiding). Only for video
+  // in the expanded player; the mini bar and audio keep their own chrome.
+  const videoControls = isVideo && expanded && (
+    <>
+      {!isPlaying && (
+        <button onClick={e => { e.stopPropagation(); _apiRef.current.toggle?.() }} style={s.ovCenter} aria-label="Reproducir">
+          <IcoPlay big />
+        </button>
+      )}
+      <div style={{ ...s.ovBar, opacity: showCtl ? 1 : 0, pointerEvents: showCtl ? 'auto' : 'none' }}
+           onClick={e => e.stopPropagation()}>
+        <div style={s.ovSeek}
+          onMouseDown={e => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const go = ev => seekTo(Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width)) * dur)
+            go(e)
+            const move = ev => go(ev), up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+          }}
+          onTouchStart={e => { const r = e.currentTarget.getBoundingClientRect(), t = e.touches[0]; seekTo(Math.min(1, Math.max(0, (t.clientX - r.left) / r.width)) * dur) }}>
+          <div style={s.ovTrack}>
+            <div style={{ ...s.ovBuf, width:`${bufPct}%` }} />
+            <div style={{ ...s.ovFill, width:`${pct}%` }} />
+            <div style={{ ...s.ovKnob, left:`${pct}%` }} />
+          </div>
+        </div>
+        <div style={s.ovRow}>
+          {!isMobile && <button onClick={() => _apiRef.current.prev?.()} style={s.ovIcon} title="Anterior"><IcoPrev /></button>}
+          <button onClick={() => _apiRef.current.toggle?.()} style={s.ovIcon} title={isPlaying ? 'Pausar' : 'Reproducir'}>{isPlaying ? <IcoPause /> : <IcoPlay />}</button>
+          <button onClick={next} style={s.ovIcon} title="Siguiente"><IcoNext /></button>
+          <span style={s.ovTime}>{fmt(cur)} / {fmt(dur)}</span>
+          <span style={{ flex:1 }} />
+          <button onClick={toggleMute} style={s.ovIcon} title={muted||vol===0 ? 'Activar sonido' : 'Silenciar'}>{muted||vol===0 ? <IcoVolMute /> : <IcoVol />}</button>
+          {!isMobile && <input type="range" min={0} max={1} step={0.02} value={muted?0:vol} onChange={e => setVolume(Number(e.target.value))} style={s.ovVol} aria-label="Volumen" />}
+          <div style={{ position:'relative' }}>
+            <button onClick={() => setMenuOpen(m => !m)} style={s.ovIcon} title="Calidad"><IcoGear /></button>
+            {menuOpen && (
+              <div style={s.qMenu}>
+                <QItem label="Auto (ajusta a tu red)" active={quality==='auto'} onClick={()=>pickQuality('auto')} />
+                <QItem label="Alta (original)" active={quality==='high'} onClick={()=>pickQuality('high')} />
+                <QItem label={`480p · ahorro de datos${sdReady?'':' (preparando…)'}`} active={quality==='sd'} disabled={!sdReady} onClick={()=>sdReady&&pickQuality('sd')} />
+              </div>
+            )}
+          </div>
+          {document.pictureInPictureEnabled && !isMobile && <button onClick={togglePip} style={s.ovIcon} title="Miniatura (PiP)"><IcoPip /></button>}
+          <button onClick={toggleFullscreen} style={s.ovIcon} title="Pantalla completa"><IcoFull /></button>
+        </div>
+      </div>
+    </>
+  )
+
   const mediaSurface = (
     <div key="media-surface" ref={wrapRef} style={frameStyle}
-         onClick={() => { if (!expanded) expand(); else if (isVideo) { const v=videoRef.current; v && (v.paused? v.play().catch(()=>{}) : v.pause()) } }}>
+         onMouseMove={() => { if (isVideo && expanded) pokeControls() }}
+         onClick={() => { if (!expanded) expand(); else if (isVideo) { pokeControls(); const v=videoRef.current; v && (v.paused? v.play().catch(()=>{}) : v.pause()) } }}>
       <video ref={videoRef} src={src || undefined} playsInline
         style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#000' }}
         onLoadedMetadata={onLoadedMeta} />
@@ -270,6 +340,7 @@ export default function MediaPlayer() {
             {isPlaying && <Equalizer />}
           </>
       )}
+      {videoControls}
     </div>
   )
 
@@ -326,6 +397,8 @@ export default function MediaPlayer() {
         <span style={s.fsViews}>{isVideo?'👁':'▶'} {current.play_count}</span>
       </div>
 
+      {/* Video's transport lives on the overlay; audio keeps it here below the cover. */}
+      {!isVideo && <>
       <div style={s.seekWrap} onMouseDown={e => {
         const rect = e.currentTarget.getBoundingClientRect()
         const go = ev => seekTo(Math.min(1, Math.max(0, (ev.clientX-rect.left)/rect.width)) * dur)
@@ -347,27 +420,12 @@ export default function MediaPlayer() {
         <button onClick={next} style={s.ctrlIcon} title="Siguiente"><IcoNext /></button>
         <div style={s.volAbs}>{volumeControl}</div>
       </div>
+      </>}
 
       <div style={s.fsActions}>
         <button onClick={handleLike} style={{ ...s.act, color: liked?'var(--danger)':'var(--text2)' }}>{liked?'♥':'♡'} {likeCount>0?likeCount:''}</button>
         <button onClick={handleShare} style={s.act}><IcoShare /> Compartir</button>
         {isNative() && <button onClick={handleDownload} style={{ ...s.act, color:'var(--accent2)' }}>{dl==='busy'?'⏳':dl==='done'?'✓':'⬇'} {dl==='done'?'Descargado':'Descargar'}</button>}
-        {isVideo && (
-          <div style={{ position:'relative' }}>
-            <button onClick={() => setMenuOpen(m=>!m)} style={s.act}>
-              {quality==='auto'?`Auto${usingSd?' · 480p':''}`:quality==='sd'?'480p':'Alta'}
-            </button>
-            {menuOpen && (
-              <div style={s.qMenu}>
-                <QItem label="Auto (ajusta a tu red)" active={quality==='auto'} onClick={()=>pickQuality('auto')} />
-                <QItem label="Alta (original)" active={quality==='high'} onClick={()=>pickQuality('high')} />
-                <QItem label={`480p · ahorro de datos${sdReady?'':' (preparando…)'}`} active={quality==='sd'} disabled={!sdReady} onClick={()=>sdReady&&pickQuality('sd')} />
-              </div>
-            )}
-          </div>
-        )}
-        {isVideo && document.pictureInPictureEnabled && <button onClick={togglePip} style={s.act} title="PiP"><IcoPip /></button>}
-        {isVideo && <button onClick={toggleFullscreen} style={s.act} title="Pantalla completa"><IcoFull /></button>}
       </div>
     </>
   )
@@ -447,6 +505,7 @@ const IcoShare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+const IcoGear = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.62l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.86a.5.5 0 0 0 .12.62l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.62l1.92 3.32c.14.24.42.32.66.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.25.42.5.42h3.84c.25 0 .45-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.24.1.52.02.66-.22l1.92-3.32a.5.5 0 0 0-.12-.62l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
 const IcoVol = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
 const IcoVolMute = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.18l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
 
@@ -497,4 +556,17 @@ const s = {
   upRowTitle: { fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   upRowArtist: { fontSize:12, color:'var(--text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   upEmpty: { fontSize:13, color:'var(--text3)' },
+
+  // Video overlay controls (painted on the frame, auto-hiding).
+  ovCenter: { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:4, width:64, height:64, borderRadius:'50%', background:'rgba(0,0,0,.5)', color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', paddingLeft:4 },
+  ovBar: { position:'absolute', left:0, right:0, bottom:0, zIndex:4, padding:'22px 12px 8px', background:'linear-gradient(0deg, rgba(0,0,0,.78) 0%, rgba(0,0,0,.35) 55%, transparent 100%)', transition:'opacity .2s ease' },
+  ovSeek: { padding:'8px 0', cursor:'pointer' },
+  ovTrack: { position:'relative', height:4, borderRadius:3, background:'rgba(255,255,255,.28)' },
+  ovBuf: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'rgba(255,255,255,.45)' },
+  ovFill: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'var(--accent)' },
+  ovKnob: { position:'absolute', top:'50%', width:13, height:13, borderRadius:'50%', background:'var(--accent)', transform:'translate(-50%,-50%)', boxShadow:'0 0 0 3px rgba(var(--accent-rgb),.35)' },
+  ovRow: { display:'flex', alignItems:'center', gap:6, color:'#fff' },
+  ovIcon: { color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', padding:5, background:'none', border:'none', cursor:'pointer', flexShrink:0 },
+  ovTime: { fontSize:12.5, color:'#fff', fontVariantNumeric:'tabular-nums', marginLeft:6, whiteSpace:'nowrap' },
+  ovVol: { width:72, accentColor:'var(--accent)', cursor:'pointer' },
 }
