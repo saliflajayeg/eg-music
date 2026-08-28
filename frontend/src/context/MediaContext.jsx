@@ -13,6 +13,8 @@ export function MediaProvider({ children }) {
   const [index, setIndex]         = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [expanded, setExpanded]   = useState(false)
+  const [shuffle, setShuffle]     = useState(false)
+  const [repeat, setRepeat]       = useState('off')   // 'off' | 'all' | 'one'
   const apiRef = useRef({})        // imperative controls registered by MediaPlayer
   const primedRef = useRef(false)  // a random song is cued, waiting for a gesture
   const openedAtRef = useRef(0)    // when the current item was opened (guards nav-collapse)
@@ -33,7 +35,12 @@ export function MediaProvider({ children }) {
 
   const togglePlay = useCallback(() => apiRef.current.toggle?.(), [])
   const seek       = useCallback(t => apiRef.current.seek?.(t), [])
-  const next = useCallback(() => setIndex(i => (i + 1 < queue.length ? i + 1 : i)), [queue.length])
+  const next = useCallback(() => setIndex(i => {
+    if (queue.length <= 1) return i
+    if (shuffle) { let r = i; while (r === i) r = Math.floor(Math.random() * queue.length); return r }
+    if (i + 1 < queue.length) return i + 1
+    return repeat === 'all' ? 0 : i          // wrap to start only when repeating all
+  }), [queue.length, shuffle, repeat])
   const prev = useCallback(() => {
     // Restart the current item if we're more than 3s in, else go back.
     if (apiRef.current.prev) apiRef.current.prev()
@@ -76,8 +83,10 @@ export function MediaProvider({ children }) {
   }, [])
 
   const value = {
-    queue, index, current, isPlaying, expanded,
+    queue, index, current, isPlaying, expanded, shuffle, repeat,
     play, togglePlay, next, prev, seek, close,
+    toggleShuffle: () => setShuffle(s => !s),
+    cycleRepeat: () => setRepeat(r => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')),
     expand: () => setExpanded(true),
     collapse: () => setExpanded(false),
     // internals for MediaPlayer

@@ -57,8 +57,8 @@ const fmt = s => {
 
 export default function MediaPlayer() {
   const media = useMedia()
-  const { current, queue, index, isPlaying, expanded,
-          next, prev, collapse, expand, close, _apiRef, _setIsPlaying } = media
+  const { current, queue, index, isPlaying, expanded, shuffle, repeat,
+          next, prev, collapse, expand, close, toggleShuffle, cycleRepeat, _apiRef, _setIsPlaying } = media
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -168,7 +168,7 @@ export default function MediaPlayer() {
     }
     const onDur = () => setDur(isNaN(v.duration) ? 0 : v.duration)
     const onProg = () => { try { if (v.buffered.length) setBuf(v.buffered.end(v.buffered.length - 1)) } catch {} }
-    const onEnd = () => next()
+    const onEnd = () => { if (repeat === 'one') { const x=videoRef.current; if (x) { x.currentTime = 0; x.play().catch(()=>{}) } } else next() }
     const onWaiting = () => { if (isVideo && quality === 'auto' && sdReady && !usingSd) setStalls(s => s + 1) }
     const onVolume = () => { setVol(v.volume); setMuted(v.muted) }
     v.addEventListener('play', onPlay); v.addEventListener('pause', onPause)
@@ -182,7 +182,7 @@ export default function MediaPlayer() {
       v.removeEventListener('waiting', onWaiting); v.removeEventListener('volumechange', onVolume)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current.id, isLocal, quality, usingSd])
+  }, [current.id, isLocal, quality, usingSd, repeat, next])
 
   // Imperative controls used by the context (and cards via play()).
   useEffect(() => {
@@ -215,16 +215,16 @@ export default function MediaPlayer() {
   function pokeControls() {
     setShowCtl(true)
     clearTimeout(hideTimer.current)
-    if (isVideo && isPlaying) hideTimer.current = setTimeout(() => { setShowCtl(false); setMenuOpen(false) }, 2800)
+    if (isPlaying) hideTimer.current = setTimeout(() => { setShowCtl(false); setMenuOpen(false) }, 2800)
   }
   useEffect(() => {
-    if (!isVideo || !expanded) return
+    if (!expanded) return
     clearTimeout(hideTimer.current)
     if (isPlaying) hideTimer.current = setTimeout(() => setShowCtl(false), 2800)
     else setShowCtl(true)
     return () => clearTimeout(hideTimer.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, isVideo, expanded, current.id])
+  }, [isPlaying, expanded, current.id])
 
   async function handleLike() {
     if (!user) { navigate('/login'); return }
@@ -270,9 +270,10 @@ export default function MediaPlayer() {
       ? { position:'fixed', top:HEAD+18, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160 }
       : { position:'fixed', top:HEAD, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160 }
 
-  // YouTube-style controls painted ON the video (auto-hiding). Only for video
-  // in the expanded player; the mini bar and audio keep their own chrome.
-  const videoControls = isVideo && expanded && (
+  // YouTube-style controls painted ON the frame (auto-hiding) — for BOTH audio
+  // (over its cover) and video, so a song looks and works exactly like a video.
+  // Quality/PiP/fullscreen are video-only. The mini bar keeps its own chrome.
+  const frameControls = expanded && (
     <>
       {!isPlaying && (
         <button onClick={e => { e.stopPropagation(); _apiRef.current.toggle?.() }} style={s.ovCenter} aria-label="Reproducir">
@@ -304,6 +305,7 @@ export default function MediaPlayer() {
           <span style={{ flex:1 }} />
           <button onClick={toggleMute} style={s.ovIcon} title={muted||vol===0 ? 'Activar sonido' : 'Silenciar'}>{muted||vol===0 ? <IcoVolMute /> : <IcoVol />}</button>
           {!isMobile && <input type="range" min={0} max={1} step={0.02} value={muted?0:vol} onChange={e => setVolume(Number(e.target.value))} style={s.ovVol} aria-label="Volumen" />}
+          {isVideo && <>
           <div style={{ position:'relative' }}>
             <button onClick={() => setMenuOpen(m => !m)} style={s.ovIcon} title="Calidad"><IcoGear /></button>
             {menuOpen && (
@@ -316,6 +318,7 @@ export default function MediaPlayer() {
           </div>
           {document.pictureInPictureEnabled && !isMobile && <button onClick={togglePip} style={s.ovIcon} title="Miniatura (PiP)"><IcoPip /></button>}
           <button onClick={toggleFullscreen} style={s.ovIcon} title="Pantalla completa"><IcoFull /></button>
+          </>}
         </div>
       </div>
     </>
@@ -323,8 +326,8 @@ export default function MediaPlayer() {
 
   const mediaSurface = (
     <div key="media-surface" ref={wrapRef} style={frameStyle}
-         onMouseMove={() => { if (isVideo && expanded) pokeControls() }}
-         onClick={() => { if (!expanded) expand(); else if (isVideo) { pokeControls(); const v=videoRef.current; v && (v.paused? v.play().catch(()=>{}) : v.pause()) } }}>
+         onMouseMove={() => { if (expanded) pokeControls() }}
+         onClick={() => { if (!expanded) expand(); else { pokeControls(); const v=videoRef.current; v && (v.paused? v.play().catch(()=>{}) : v.pause()) } }}>
       <video ref={videoRef} src={src || undefined} playsInline
         style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#000' }}
         onLoadedMetadata={onLoadedMeta} />
@@ -337,10 +340,10 @@ export default function MediaPlayer() {
             <div style={{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(6,10,8,.2), rgba(6,10,8,.6))' }} />
             <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
               style={{ position:'absolute', top:'42%', left:'50%', transform:'translate(-50%,-50%)', height:'64%', aspectRatio:'1', objectFit:'cover', borderRadius:12, boxShadow:'0 16px 40px -12px rgba(0,0,0,.75)' }} />
-            {isPlaying && <Equalizer />}
+            {isPlaying && !showCtl && <Equalizer />}
           </>
       )}
-      {videoControls}
+      {frameControls}
     </div>
   )
 
@@ -378,16 +381,6 @@ export default function MediaPlayer() {
 
   const contentPad = `calc(${mMediaH} + 18px)`
 
-  const volumeControl = (
-    <div style={s.volGroup}>
-      <button onClick={toggleMute} style={s.volBtn} title={muted||vol===0 ? 'Activar sonido' : 'Silenciar'} aria-label="Volumen">
-        {muted||vol===0 ? <IcoVolMute/> : <IcoVol/>}
-      </button>
-      <input type="range" min={0} max={1} step={0.02} value={muted?0:vol}
-        onChange={e => setVolume(Number(e.target.value))} style={s.volSlider} aria-label="Volumen" />
-    </div>
-  )
-
   const infoBlock = (
     <>
       <h1 style={s.fsTitle}>{current.title}</h1>
@@ -397,30 +390,7 @@ export default function MediaPlayer() {
         <span style={s.fsViews}>{isVideo?'👁':'▶'} {current.play_count}</span>
       </div>
 
-      {/* Video's transport lives on the overlay; audio keeps it here below the cover. */}
-      {!isVideo && <>
-      <div style={s.seekWrap} onMouseDown={e => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        const go = ev => seekTo(Math.min(1, Math.max(0, (ev.clientX-rect.left)/rect.width)) * dur)
-        go(e)
-        const move = ev => go(ev), up = () => { window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up) }
-        window.addEventListener('mousemove',move); window.addEventListener('mouseup',up)
-      }}>
-        <div style={s.seekTrack}>
-          <div style={{ ...s.seekBuf, width:`${bufPct}%` }} />
-          <div style={{ ...s.seekFill, width:`${pct}%` }} />
-          <div style={{ ...s.seekKnob, left:`${pct}%` }} />
-        </div>
-      </div>
-      <div style={s.times}><span>{fmt(cur)}</span><span>{fmt(dur)}</span></div>
-
-      <div style={{ ...s.fsControls, position:'relative' }}>
-        <button onClick={() => _apiRef.current.prev?.()} style={s.ctrlIcon} title="Anterior"><IcoPrev /></button>
-        <button onClick={() => _apiRef.current.toggle?.()} style={s.ctrlPlay}>{isPlaying?<IcoPause big/>:<IcoPlay big/>}</button>
-        <button onClick={next} style={s.ctrlIcon} title="Siguiente"><IcoNext /></button>
-        <div style={s.volAbs}>{volumeControl}</div>
-      </div>
-      </>}
+      {/* Transport for BOTH audio and video now lives on the frame overlay. */}
 
       <div style={s.fsActions}>
         <button onClick={handleLike} style={{ ...s.act, color: liked?'var(--danger)':'var(--text2)' }}>{liked?'♥':'♡'} {likeCount>0?likeCount:''}</button>
@@ -432,7 +402,15 @@ export default function MediaPlayer() {
 
   const upNextBlock = (
     <div style={s.upNext}>
-      <div style={s.upTitle}>A continuación</div>
+      <div style={s.upHead}>
+        <span style={s.upTitle}>A continuación</span>
+        <div style={{ display:'flex', gap:2 }}>
+          <button onClick={toggleShuffle} style={{ ...s.upCtl, color: shuffle ? 'var(--accent)' : 'var(--text3)' }} title={shuffle ? 'Aleatorio activado' : 'Reproducción aleatoria'}><IcoShuffle /></button>
+          <button onClick={cycleRepeat} style={{ ...s.upCtl, color: repeat!=='off' ? 'var(--accent)' : 'var(--text3)' }} title={repeat==='one' ? 'Repetir esta' : repeat==='all' ? 'Repetir cola' : 'Repetir'}>
+            {repeat==='one' ? <IcoRepeatOne /> : <IcoRepeat />}
+          </button>
+        </div>
+      </div>
       {queue.length > 1
         ? queue.map((t, i) => i !== index && (
             <button key={t.id} onClick={() => media.play(t, queue)} style={s.upRow}>
@@ -505,6 +483,9 @@ const IcoShare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+const IcoShuffle = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+const IcoRepeat = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+const IcoRepeatOne = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" fill="currentColor"/></svg>
 const IcoGear = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.62l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.86a.5.5 0 0 0 .12.62l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.62l1.92 3.32c.14.24.42.32.66.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.25.42.5.42h3.84c.25 0 .45-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.24.1.52.02.66-.22l1.92-3.32a.5.5 0 0 0-.12-.62l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
 const IcoVol = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
 const IcoVolMute = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.18l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
@@ -550,7 +531,9 @@ const s = {
   act: { display:'flex', alignItems:'center', gap:6, fontSize:13, fontWeight:600, color:'var(--text2)', background:'none', border:'none', cursor:'pointer' },
   qMenu: { position:'absolute', bottom:'calc(100% + 8px)', right:0, minWidth:210, background:'rgba(20,20,20,.97)', border:'1px solid rgba(255,255,255,.15)', borderRadius:10, padding:6, zIndex:170, boxShadow:'0 8px 24px rgba(0,0,0,.5)' },
   upNext: { marginTop:24 },
-  upTitle: { fontSize:14, fontWeight:700, marginBottom:10 },
+  upHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
+  upTitle: { fontSize:14, fontWeight:700 },
+  upCtl: { display:'flex', alignItems:'center', justifyContent:'center', padding:5, background:'none', border:'none', cursor:'pointer', borderRadius:6 },
   upRow: { display:'flex', alignItems:'center', gap:10, width:'100%', padding:'6px 0', background:'none', border:'none', cursor:'pointer', color:'var(--text)' },
   upThumb: { width:56, height:40, borderRadius:6, objectFit:'cover', flexShrink:0, background:'var(--bg3)' },
   upRowTitle: { fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
