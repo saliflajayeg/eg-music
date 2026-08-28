@@ -8,6 +8,7 @@ import { shareTrack } from '../share'
 import { localSrc, isDownloaded, queuePlay, isNative, downloadMedia, deleteDownload } from '../offline'
 import ArtistLine from './ArtistLine'
 import Comments from './Comments'
+import AddToPlaylist from './AddToPlaylist'
 
 const HEADER_H = 52
 const _resumeAt = {}   // last position per track, kept across src/quality swaps
@@ -355,6 +356,7 @@ export default function MediaPlayer() {
       <div style={s.fsActions}>
         <button onClick={handleLike} style={{ ...s.act, color: liked?'var(--danger)':'var(--text2)' }}>{liked?'♥':'♡'} {likeCount>0?likeCount:''}</button>
         <button onClick={handleShare} style={s.act}><IcoShare /> Compartir</button>
+        <span style={s.act}><AddToPlaylist trackId={current.id} /></span>
         {isNative() && <button onClick={handleDownload} style={{ ...s.act, color:'var(--accent2)' }}>{dl==='busy'?'⏳':dl==='done'?'✓':'⬇'} {dl==='done'?'Descargado':'Descargar'}</button>}
       </div>
     </>

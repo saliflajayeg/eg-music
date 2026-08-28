@@ -6,9 +6,11 @@ import { trackCoverUrl, likeTrack, deleteTrack, scheduleTrack } from '../api'
 import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offline'
 import { shareTrack } from '../share'
 import ArtistLine from './ArtistLine'
+import AddToPlaylist from './AddToPlaylist'
 
 // YouTube-style card: a big 16:9 thumbnail leads, title + artist below.
-export default function TrackCard({ track, queue, onDelete }) {
+// onRemove(id): when given (e.g. inside a playlist), shows a "Quitar" action.
+export default function TrackCard({ track, queue, onDelete, onRemove }) {
   const { play, current, isPlaying } = useMedia()
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -108,6 +110,10 @@ export default function TrackCard({ track, queue, onDelete }) {
             {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
           </button>
           <button onClick={handleShare} style={s.actBtn} title="Compartir"><IcoShare /></button>
+          <AddToPlaylist trackId={track.id} compact />
+          {onRemove && (
+            <button onClick={(e) => { e.stopPropagation(); onRemove(track.id) }} style={s.actBtn} title="Quitar de la lista">Quitar</button>
+          )}
           {isNative() && (
             <button onClick={handleDownload} style={s.actBtn} title={dl === 'done' ? 'Descargado' : 'Descargar'}>
               {dl === 'busy' ? '⏳' : dl === 'done' ? <span style={{ color:'var(--accent2)' }}>✓</span> : '⬇'}

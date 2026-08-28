@@ -18,6 +18,8 @@ import Watch     from './pages/Watch'
 import Track     from './pages/Track'
 import Collabs   from './pages/Collabs'
 import Downloads from './pages/Downloads'
+import Playlists      from './pages/Playlists'
+import PlaylistDetail from './pages/PlaylistDetail'
 
 export default function App() {
   // Push any offline plays to the server on startup and when back online.
@@ -45,6 +47,8 @@ export default function App() {
               <Route path="/track/:id" element={<Track />} />
               <Route path="/colaboraciones" element={<Collabs />} />
               <Route path="/downloads" element={<Downloads />} />
+              <Route path="/playlists"     element={<Playlists />} />
+              <Route path="/playlist/:id"  element={<PlaylistDetail />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>

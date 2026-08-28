@@ -311,6 +311,68 @@ def set_track_schedule(track_id: int, body: ScheduleBody, user=Depends(require_u
     db.set_publish_at(track_id, _parse_publish_at(body.publish_at))
     return db.get_track(track_id, viewer_id=user['id'])
 
+# ── Playlists ────────────────────────────────────────────────────────────────
+
+class PlaylistBody(BaseModel):
+    name: str
+
+class PlaylistTrackBody(BaseModel):
+    track_id: int
+
+def _own_playlist(pid, user):
+    p = db.get_playlist(pid)
+    if not p: raise HTTPException(404, "Lista no encontrada")
+    if p['user_id'] != user['id'] and not user.get('is_admin'):
+        raise HTTPException(403, "No es tu lista")
+    return p
+
+@app.get("/api/playlists")
+def list_playlists(user=Depends(require_user)):
+    return db.get_user_playlists(user['id'])
+
+@app.post("/api/playlists", status_code=201)
+def create_playlist(body: PlaylistBody, user=Depends(require_user)):
+    name = (body.name or '').strip()
+    if not name: raise HTTPException(400, "Pon un nombre a la lista")
+    pid = db.create_playlist(user['id'], name[:80])
+    return db.get_playlist(pid)
+
+# Defined before /api/playlists/{pid} so "for-track" isn't read as an id.
+@app.get("/api/playlists/for-track/{track_id}")
+def playlists_for_track(track_id: int, user=Depends(require_user)):
+    return db.playlists_for_track(user['id'], track_id)
+
+@app.get("/api/playlists/{pid}")
+def get_playlist(pid: int, user=Depends(require_user)):
+    p = dict(_own_playlist(pid, user))
+    p['tracks'] = db.get_playlist_tracks(pid, viewer_id=user['id'])
+    return p
+
+@app.patch("/api/playlists/{pid}")
+def rename_playlist(pid: int, body: PlaylistBody, user=Depends(require_user)):
+    _own_playlist(pid, user)
+    name = (body.name or '').strip()
+    if not name: raise HTTPException(400, "Pon un nombre a la lista")
+    db.rename_playlist(pid, name[:80])
+    return db.get_playlist(pid)
+
+@app.delete("/api/playlists/{pid}", status_code=204)
+def delete_playlist(pid: int, user=Depends(require_user)):
+    _own_playlist(pid, user)
+    db.delete_playlist(pid)
+
+@app.post("/api/playlists/{pid}/tracks", status_code=201)
+def add_playlist_track(pid: int, body: PlaylistTrackBody, user=Depends(require_user)):
+    _own_playlist(pid, user)
+    if not db.get_track(body.track_id): raise HTTPException(404, "Canción no encontrada")
+    db.add_to_playlist(pid, body.track_id)
+    return {"ok": True}
+
+@app.delete("/api/playlists/{pid}/tracks/{track_id}", status_code=204)
+def remove_playlist_track(pid: int, track_id: int, user=Depends(require_user)):
+    _own_playlist(pid, user)
+    db.remove_from_playlist(pid, track_id)
+
 @app.post("/api/tracks", status_code=201)
 async def upload_track(
     title:       str  = Form(...),

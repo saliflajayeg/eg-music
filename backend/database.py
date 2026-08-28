@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS playlists (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT {_PG_NOW}
+);
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT DEFAULT {_PG_NOW},
+    PRIMARY KEY (playlist_id, track_id)
+);
+CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks ON playlist_tracks(playlist_id, position);
 CREATE INDEX IF NOT EXISTS idx_tracks_user   ON tracks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_public ON tracks(is_public, created_at);
 CREATE INDEX IF NOT EXISTS idx_follows_followed ON follows(followed_id);
@@ -291,6 +306,24 @@ class Database:
                 value TEXT
             );
 
+            -- User-created playlists.
+            CREATE TABLE IF NOT EXISTS playlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                name       TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS playlist_tracks (
+                playlist_id INTEGER NOT NULL,
+                track_id    INTEGER NOT NULL,
+                position    INTEGER NOT NULL DEFAULT 0,
+                added_at    TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (playlist_id, track_id),
+                FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+                FOREIGN KEY (track_id)    REFERENCES tracks(id)    ON DELETE CASCADE
+            );
+
             INSERT OR IGNORE INTO settings VALUES
                 ('payment_instructions', 'Paga con Muni Dinero 📱\n\n1. Abre Muni Dinero en tu teléfono\n2. Envía el importe de tu plan a:\n     Número: [TU NÚMERO MUNI DINERO]\n     Nombre: [TU NOMBRE]\n3. Guarda una captura o foto del recibo del pago\n4. Sube la foto del recibo aquí abajo y envía tu solicitud\n\nEl administrador confirmará el pago y activará tu plan.'),
                 ('pro_price', '3000 XAF / mes'),
@@ -303,6 +336,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_follows_followed ON follows(followed_id);
             CREATE INDEX IF NOT EXISTS idx_comments_track ON comments(track_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_notifs_user ON notifications(user_id, is_read, created_at);
+            CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
+            CREATE INDEX IF NOT EXISTS idx_playlist_tracks ON playlist_tracks(playlist_id, position);
         ''')
         self._migrate()
         self.conn.commit()
@@ -863,6 +898,76 @@ class Database:
             ORDER BY t.created_at DESC
         ''', (user_id, user_id)).fetchall()
         return self._with_artists(rows)
+
+    # ── Playlists ─────────────────────────────────────────────────────────────
+
+    def create_playlist(self, user_id, name):
+        pid = self._insert_id('INSERT INTO playlists (user_id, name) VALUES (?,?)', (user_id, name))
+        self.conn.commit()
+        return pid
+
+    def get_playlist(self, playlist_id):
+        r = self.conn.execute('SELECT * FROM playlists WHERE id=?', (playlist_id,)).fetchone()
+        return dict(r) if r else None
+
+    def get_user_playlists(self, user_id):
+        rows = self.conn.execute('''
+            SELECT p.id, p.name, p.created_at,
+                   (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id=p.id) AS track_count,
+                   (SELECT pt.track_id FROM playlist_tracks pt WHERE pt.playlist_id=p.id
+                      ORDER BY pt.position, pt.added_at LIMIT 1) AS cover_track_id
+            FROM playlists p
+            WHERE p.user_id=?
+            ORDER BY p.created_at DESC
+        ''', (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_playlist_tracks(self, playlist_id, viewer_id=None):
+        rows = self.conn.execute('''
+            SELECT t.*, u.username, u.display_name,
+                   (SELECT COUNT(*) FROM likes WHERE track_id=t.id) AS like_count,
+                   (SELECT COUNT(*) FROM likes WHERE track_id=t.id AND user_id=?) AS liked_by_me
+            FROM playlist_tracks pt
+            JOIN tracks t ON pt.track_id=t.id
+            JOIN users u ON t.user_id=u.id
+            WHERE pt.playlist_id=? AND t.is_public=1
+              AND (t.publish_at='' OR t.publish_at<=datetime('now') OR t.user_id=?)
+            ORDER BY pt.position, pt.added_at
+        ''', (viewer_id or 0, playlist_id, viewer_id or 0)).fetchall()
+        return self._with_artists(rows)
+
+    def add_to_playlist(self, playlist_id, track_id):
+        row = self.conn.execute(
+            'SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM playlist_tracks WHERE playlist_id=?',
+            (playlist_id,)).fetchone()
+        pos = row['pos'] if row else 0
+        self.conn.execute(
+            'INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?,?,?)',
+            (playlist_id, track_id, pos))
+        self.conn.commit()
+
+    def remove_from_playlist(self, playlist_id, track_id):
+        self.conn.execute('DELETE FROM playlist_tracks WHERE playlist_id=? AND track_id=?', (playlist_id, track_id))
+        self.conn.commit()
+
+    def rename_playlist(self, playlist_id, name):
+        self.conn.execute('UPDATE playlists SET name=? WHERE id=?', (name, playlist_id))
+        self.conn.commit()
+
+    def delete_playlist(self, playlist_id):
+        self.conn.execute('DELETE FROM playlists WHERE id=?', (playlist_id,))
+        self.conn.commit()
+
+    def playlists_for_track(self, user_id, track_id):
+        """The user's playlists, each flagged with whether it holds this track."""
+        rows = self.conn.execute('''
+            SELECT p.id, p.name,
+                   (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id=p.id AND pt.track_id=?) AS has_track
+            FROM playlists p
+            WHERE p.user_id=?
+            ORDER BY p.created_at DESC
+        ''', (track_id, user_id)).fetchall()
+        return [dict(r) for r in rows]
 
     # ── Follows ───────────────────────────────────────────────────────────────
 

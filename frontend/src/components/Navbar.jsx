@@ -57,6 +57,9 @@ export default function Navbar() {
                 <Link to={`/user/${user.id}`} style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   Mi perfil
                 </Link>
+                <Link to="/playlists" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                  🎵 Mis listas
+                </Link>
                 {isNative() && (
                   <Link to="/downloads" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                     📥 Mis descargas

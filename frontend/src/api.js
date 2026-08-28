@@ -105,6 +105,16 @@ export const likeComment      = id                    => post(`/comments/${id}/l
 export const getNotifications      = () => get('/notifications')
 export const markNotificationsRead = () => post('/notifications/read')
 
+// Playlists
+export const getPlaylists        = ()            => get('/playlists')
+export const createPlaylist      = name          => post('/playlists', { name })
+export const getPlaylist         = id            => get(`/playlists/${id}`)
+export const renamePlaylist      = (id, name)    => patch(`/playlists/${id}`, { name })
+export const deletePlaylist      = id            => del(`/playlists/${id}`)
+export const addToPlaylist       = (id, trackId) => post(`/playlists/${id}/tracks`, { track_id: trackId })
+export const removeFromPlaylist  = (id, trackId) => del(`/playlists/${id}/tracks/${trackId}`)
+export const playlistsForTrack   = trackId       => get(`/playlists/for-track/${trackId}`)
+
 // Collaborations
 export const searchArtists    = q          => get(`/artists/search?q=${encodeURIComponent(q)}`)
 export const pendingCollabs   = ()         => get('/collabs/pending')
