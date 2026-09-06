@@ -61,6 +61,7 @@ export default function Collabs() {
                 <div style={s.title}>{i.title}</div>
                 <div style={s.sub}>
                   {i.owner_display_name || i.owner_username} te etiquetó
+                  {i.role && i.role !== 'Artista invitado' ? ` como ${i.role}` : ''}
                   {i.media_type === 'video' ? ' en este video' : ' en esta canción'}
                 </div>
                 <div style={s.pct}>Tu parte: <strong>{Math.round(i.percent)}%</strong></div>

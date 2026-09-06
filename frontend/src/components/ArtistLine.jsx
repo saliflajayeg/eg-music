@@ -1,6 +1,11 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 
+// Roles that read as "this person performed on the track" — they appear on the
+// artist line. Production credits (Productor, Mezcla, Máster…) are shown apart
+// in a Créditos list instead. Empty role = legacy collaborator = performing.
+export const PERFORMING_ROLES = new Set(['', 'Artista invitado', 'Vocalista', 'Corista'])
+
 /**
  * The credited artists for a track: "Ana · Luis · Marta", each linking to their
  * profile. Falls back to the uploader for tracks with no collaboration data.
@@ -8,9 +13,11 @@ import { Link } from 'react-router-dom'
  * but never shown to listeners on a song.)
  */
 export default function ArtistLine({ track, style, onNavigate }) {
-  const artists = (track.artists && track.artists.length)
+  const all = (track.artists && track.artists.length)
     ? track.artists
     : [{ user_id: track.user_id, username: track.username, display_name: track.display_name }]
+  // Only performers on the line; producers/master go in the Créditos list.
+  const artists = all.filter(a => a.is_owner || PERFORMING_ROLES.has(a.role || ''))
 
   return (
     <span style={style}>

@@ -6,7 +6,7 @@ import { useIsMobile } from '../hooks'
 import { trackStreamUrl, trackCoverUrl, likeTrack, getFeed } from '../api'
 import { shareTrack } from '../share'
 import { localSrc, isDownloaded, queuePlay, isNative, downloadMedia, deleteDownload } from '../offline'
-import ArtistLine from './ArtistLine'
+import ArtistLine, { PERFORMING_ROLES } from './ArtistLine'
 import ArtistHeader from './ArtistHeader'
 import Comments from './Comments'
 import AddToPlaylist from './AddToPlaylist'
@@ -414,6 +414,24 @@ export default function MediaPlayer() {
           {isNative() && <button onClick={handleDownload} style={s.pill}>{dl==='busy'?'⏳':dl==='done'?'✓':'⬇'} {dl==='done'?'Descargado':'Descargar'}</button>}
         </div>
       </div>
+
+      {/* Production credits: producers, mixing, master… (performers are on the
+          artist line above). Royalty % stays private. */}
+      {(() => {
+        const credits = (current.artists || []).filter(a => !a.is_owner && !PERFORMING_ROLES.has(a.role || ''))
+        if (!credits.length) return null
+        return (
+          <div style={s.credits}>
+            <div style={s.creditsTitle}>Créditos</div>
+            {credits.map(a => (
+              <div key={a.user_id} style={s.creditRow}>
+                <span style={s.creditRole}>{a.role}</span>
+                <Link to={`/user/${a.user_id}`} style={s.creditName}>{a.display_name || a.username}</Link>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </>
   )
 
@@ -558,6 +576,11 @@ const s = {
   fsActions: { display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', paddingTop:14, marginTop:10, borderTop:'1px solid var(--border)' },
   act: { display:'flex', alignItems:'center', gap:6, fontSize:13, fontWeight:600, color:'var(--text2)', background:'none', border:'none', cursor:'pointer' },
   qMenu: { position:'absolute', bottom:'calc(100% + 8px)', right:0, minWidth:210, background:'rgba(20,20,20,.97)', border:'1px solid rgba(255,255,255,.15)', borderRadius:10, padding:6, zIndex:170, boxShadow:'0 8px 24px rgba(0,0,0,.5)' },
+  credits: { marginTop:16, padding:'14px 16px', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:12 },
+  creditsTitle: { fontSize:13, fontWeight:700, marginBottom:8 },
+  creditRow: { display:'flex', gap:10, alignItems:'baseline', padding:'3px 0' },
+  creditRole: { fontSize:12, color:'var(--text3)', minWidth:110, flexShrink:0 },
+  creditName: { fontSize:13, fontWeight:600, color:'var(--text)' },
   upNext: { marginTop:24 },
   upHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
   upTitle: { fontSize:14, fontWeight:700 },

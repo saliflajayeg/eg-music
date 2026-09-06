@@ -380,7 +380,7 @@ async def upload_track(
     album:       str  = Form(''),
     genre:       str  = Form(''),
     description: str  = Form(''),
-    collaborators: str = Form(''),   # JSON: [{user_id, percent}]
+    collaborators: str = Form(''),   # JSON: [{user_id, percent, role}]
     publish_at:  str  = Form(''),    # ISO UTC futura, o '' para publicar ya
     audio:       UploadFile = File(...),
     cover:       Optional[UploadFile] = File(None),

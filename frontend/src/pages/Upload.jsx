@@ -82,7 +82,7 @@ export default function Upload() {
       fd.append('genre',       form.genre)
       fd.append('description', form.description)
       fd.append('collaborators', JSON.stringify(
-        collabs.map(c => ({ user_id: c.user_id, percent: Number(c.percent) }))
+        collabs.map(c => ({ user_id: c.user_id, percent: Number(c.percent), role: c.role || '' }))
       ))
       fd.append('audio',       mediaFile)
       if (coverFile) fd.append('cover', coverFile)

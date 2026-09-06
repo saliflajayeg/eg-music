@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS track_artists (
     percent REAL NOT NULL DEFAULT 0,
     status TEXT DEFAULT 'pending',
     is_owner INTEGER DEFAULT 0,
+    role TEXT DEFAULT '',
     created_at TEXT DEFAULT {_PG_NOW},
     PRIMARY KEY (track_id, user_id)
 );
@@ -164,6 +165,11 @@ class Database:
     def _create_tables(self):
         if self.pg:
             self.conn.executescript(_PG_SCHEMA)
+            # In-place migrations for existing Postgres DBs (CREATE IF NOT EXISTS
+            # can't add columns to a table that already exists).
+            for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",):
+                try: self.conn.execute(stmt)
+                except Exception: pass
             self.conn.commit()
             return
         self.conn.executescript('''
@@ -251,6 +257,7 @@ class Database:
                 percent    REAL NOT NULL DEFAULT 0,
                 status     TEXT DEFAULT 'pending',   -- pending | accepted | declined
                 is_owner   INTEGER DEFAULT 0,
+                role       TEXT DEFAULT '',          -- credit: Productor, Máster, Mezcla…
                 created_at TEXT DEFAULT (datetime('now')),
                 PRIMARY KEY (track_id, user_id),
                 FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
@@ -373,6 +380,10 @@ class Database:
             self.conn.execute("ALTER TABLE subscription_requests ADD COLUMN plan TEXT DEFAULT 'pro'")
         if 'receipt' not in req_cols:
             self.conn.execute("ALTER TABLE subscription_requests ADD COLUMN receipt TEXT DEFAULT ''")
+
+        ta_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(track_artists)").fetchall()]
+        if ta_cols and 'role' not in ta_cols:
+            self.conn.execute("ALTER TABLE track_artists ADD COLUMN role TEXT DEFAULT ''")
 
         if self.get_setting('site_name') == 'SoundUp':
             self.set_setting('site_name', 'EG Music')
@@ -753,12 +764,13 @@ class Database:
     # ── Collaborations (multi-artist tracks + revenue splits) ──────────────────
 
     def set_track_artists(self, track_id, owner_id, owner_percent, collaborators):
-        """Record who made a track. `collaborators` is [{user_id, percent}];
-        each starts pending until that artist accepts. The uploader is stored
+        """Record who made a track. `collaborators` is [{user_id, percent, role}];
+        `role` is a credit like Productor / Máster / Mezcla (empty = artist).
+        Each starts pending until that artist accepts. The uploader is stored
         as the owner and is accepted automatically."""
         self.conn.execute('DELETE FROM track_artists WHERE track_id=?', (track_id,))
         self.conn.execute(
-            "INSERT INTO track_artists (track_id, user_id, percent, status, is_owner) VALUES (?,?,?,'accepted',1)",
+            "INSERT INTO track_artists (track_id, user_id, percent, status, is_owner, role) VALUES (?,?,?,'accepted',1,'')",
             (track_id, owner_id, owner_percent)
         )
         for c in collaborators:
@@ -766,14 +778,14 @@ class Database:
             if not uid or int(uid) == int(owner_id):
                 continue
             self.conn.execute(
-                "INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner) VALUES (?,?,?,'pending',0)",
-                (track_id, uid, float(c.get('percent') or 0))
+                "INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner, role) VALUES (?,?,?,'pending',0,?)",
+                (track_id, uid, float(c.get('percent') or 0), (c.get('role') or '').strip()[:40])
             )
         self.conn.commit()
 
     def get_track_artists(self, track_id, include_pending=False):
         q = '''
-            SELECT ta.user_id, ta.percent, ta.status, ta.is_owner,
+            SELECT ta.user_id, ta.percent, ta.status, ta.is_owner, ta.role,
                    u.username, u.display_name, u.avatar
             FROM track_artists ta JOIN users u ON ta.user_id = u.id
             WHERE ta.track_id = ?
@@ -790,7 +802,7 @@ class Database:
             return {}
         marks = ','.join('?' * len(track_ids))
         rows = self.conn.execute(f'''
-            SELECT ta.track_id, ta.user_id, ta.percent, ta.is_owner,
+            SELECT ta.track_id, ta.user_id, ta.percent, ta.is_owner, ta.role,
                    u.username, u.display_name
             FROM track_artists ta JOIN users u ON ta.user_id = u.id
             WHERE ta.track_id IN ({marks}) AND ta.status = 'accepted'
@@ -810,7 +822,7 @@ class Database:
 
     def get_pending_collabs(self, user_id):
         rows = self.conn.execute('''
-            SELECT ta.track_id, ta.percent, t.title, t.cover, t.media_type,
+            SELECT ta.track_id, ta.percent, ta.role, t.title, t.cover, t.media_type,
                    u.username AS owner_username, u.display_name AS owner_display_name
             FROM track_artists ta
             JOIN tracks t ON ta.track_id = t.id

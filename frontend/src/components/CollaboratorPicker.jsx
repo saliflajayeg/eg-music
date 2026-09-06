@@ -2,9 +2,18 @@ import React, { useState, useEffect, useRef } from 'react'
 import { searchArtists } from '../api'
 import { Avatar } from './Navbar'
 
+// Credit roles. The first ones are "performing" (they show on the song's
+// artist line); the rest are production credits (shown in a separate "Créditos"
+// list). Everyone gets their royalty % regardless of role.
+export const ROLES = [
+  'Artista invitado', 'Corista',
+  'Productor(a)', 'Composición', 'Mezcla', 'Máster', 'Instrumentista',
+]
+
 /**
- * Credit other artists on a track and split the percentages.
- * `value` is [{user_id, username, display_name, avatar, percent}].
+ * Credit other people on a track (artists, producers, mixing/master…) and split
+ * the percentages as royalties.
+ * `value` is [{user_id, username, display_name, avatar, percent, role}].
  * The uploader keeps whatever is left over, so collaborators must total < 100.
  */
 export default function CollaboratorPicker({ value, onChange, ownerName }) {
@@ -33,7 +42,7 @@ export default function CollaboratorPicker({ value, onChange, ownerName }) {
     onChange([...value, {
       user_id: u.id, username: u.username,
       display_name: u.display_name, avatar: u.avatar,
-      percent: '',
+      percent: '', role: 'Artista invitado',
     }])
     setQ(''); setResults([])
   }
@@ -41,6 +50,8 @@ export default function CollaboratorPicker({ value, onChange, ownerName }) {
   const remove = id => onChange(value.filter(c => c.user_id !== id))
   const setPct = (id, pct) =>
     onChange(value.map(c => c.user_id === id ? { ...c, percent: pct } : c))
+  const setRole = (id, role) =>
+    onChange(value.map(c => c.user_id === id ? { ...c, role } : c))
 
   return (
     <div style={s.box}>
@@ -49,8 +60,9 @@ export default function CollaboratorPicker({ value, onChange, ownerName }) {
         <span style={{fontSize:11, color:'var(--text3)'}}>opcional</span>
       </div>
       <p style={s.hint}>
-        Etiqueta a los artistas que participaron y reparte los porcentajes.
-        Cada uno debe aceptar antes de aparecer en la canción.
+        Etiqueta a quienes participaron —artistas, productores, mezcla, máster—
+        con su rol y su porcentaje de regalías. Cada uno debe aceptar antes de
+        aparecer en la canción.
       </p>
 
       {value.map(c => (
@@ -58,7 +70,10 @@ export default function CollaboratorPicker({ value, onChange, ownerName }) {
           <Avatar user={c} size={30} />
           <div style={{flex:1, minWidth:0}}>
             <div style={s.name}>{c.display_name || c.username}</div>
-            <div style={s.sub}>@{c.username}</div>
+            <select className="input" value={c.role || 'Artista invitado'}
+                    onChange={e => setRole(c.user_id, e.target.value)} style={s.role}>
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
           </div>
           <input
             className="input" type="number" min="1" max="99" placeholder="%"
@@ -111,6 +126,7 @@ const s = {
   row: {display:'flex', alignItems:'center', gap:10},
   name: {fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'},
   sub: {fontSize:11, color:'var(--text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'},
+  role: {marginTop:3, padding:'4px 6px', fontSize:12, height:'auto', width:'100%', maxWidth:180},
   pct: {width:66, flexShrink:0, textAlign:'center', padding:'8px 6px'},
   remove: {color:'var(--text3)', fontSize:14, padding:4, flexShrink:0},
   results: {
