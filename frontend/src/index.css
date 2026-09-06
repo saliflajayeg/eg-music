@@ -96,10 +96,10 @@ input, textarea, select { font-family: inherit; }
 
 .flag-bar {
   height: 4px; flex-shrink: 0;
+  /* Full Equatorial Guinea palette (green · blue · gold · red), led by the
+     brand green — a smooth blend so it reads as EG Music, not the Italian flag. */
   background: linear-gradient(90deg,
-    var(--accent) 0%, var(--accent) 33%,
-    #fff 33%, #fff 66%,
-    var(--danger) 66%, var(--danger) 100%);
+    var(--accent) 0%, var(--blue) 40%, var(--gold) 70%, var(--danger) 100%);
 }
 
 .page { padding: 24px 28px; max-width: 1100px; margin: 0 auto; }
