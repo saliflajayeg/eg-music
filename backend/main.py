@@ -503,7 +503,7 @@ async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = ''
     # R2: hand the client a presigned url and let it stream straight from R2
     # (range requests + zero bandwidth on this server).
     if storage.enabled():
-        return RedirectResponse(storage.presigned_url(f'tracks/{fname}'), status_code=302)
+        return RedirectResponse(storage.media_url(f'tracks/{fname}'), status_code=302)
     path = TRACKS_DIR / fname
     if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
     return _stream(path, request, _mime(fname, MEDIA_MIME))
@@ -513,7 +513,7 @@ def track_cover(track_id: int):
     t = db.get_track(track_id)
     if not t or not t.get('cover'): raise HTTPException(404)
     if storage.enabled():
-        return RedirectResponse(storage.presigned_url(f"covers/{t['cover']}"), status_code=302)
+        return RedirectResponse(storage.media_url(f"covers/{t['cover']}"), status_code=302)
     path = COVERS_DIR / t['cover']
     if not path.exists(): raise HTTPException(404)
     return FileResponse(str(path), media_type=_mime(t['cover'], IMAGE_MIME))
@@ -721,7 +721,7 @@ def register_download(track_id: int, user=Depends(require_user)):
 @app.get("/api/avatars/{fname}")
 def get_avatar(fname: str):
     if storage.enabled():
-        return RedirectResponse(storage.presigned_url(f'avatars/{fname}'), status_code=302)
+        return RedirectResponse(storage.media_url(f'avatars/{fname}'), status_code=302)
     path = AVATARS_DIR / fname
     if not path.exists(): raise HTTPException(404)
     return FileResponse(str(path), media_type=_mime(fname, IMAGE_MIME))

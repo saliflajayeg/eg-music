@@ -14,6 +14,10 @@ _ACCOUNT = os.environ.get('R2_ACCOUNT_ID', '')
 _KEY     = os.environ.get('R2_ACCESS_KEY_ID', '')
 _SECRET  = os.environ.get('R2_SECRET_ACCESS_KEY', '')
 _BUCKET  = os.environ.get('R2_BUCKET', 'egmusic')
+# Public bucket URL (r2.dev or a custom domain). When set, media is served
+# through Cloudflare's CDN edge (fast, cached, near the listener) instead of the
+# S3 API endpoint — so we redirect to a plain public URL, no signing needed.
+_PUBLIC  = os.environ.get('R2_PUBLIC_URL', '').rstrip('/')
 
 _client = None
 _client_lock = threading.Lock()
@@ -92,3 +96,11 @@ def presigned_url(key):
     with _url_lock:
         _url_cache[key] = (url, now + _TTL)
     return url
+
+
+def media_url(key):
+    """URL to redirect a client to for this object. Prefers the public CDN URL
+    (fast, cached, no signing) when R2_PUBLIC_URL is set; else a presigned URL."""
+    if _PUBLIC:
+        return f'{_PUBLIC}/{key}'
+    return presigned_url(key)

@@ -16,3 +16,7 @@ services:
         sync: false
       - key: R2_BUCKET
         value: egmusic
+      # Public R2 CDN URL (r2.dev) — not secret. Media is served through
+      # Cloudflare's edge instead of the slow S3 API endpoint.
+      - key: R2_PUBLIC_URL
+        value: https://pub-a61e6b9393a8413ea0770ea0abf172bb.r2.dev
