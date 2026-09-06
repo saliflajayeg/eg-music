@@ -15,3 +15,11 @@ initBackend().finally(() => {
     </BrowserRouter>
   )
 })
+
+// Register the service worker so the site is installable (PWA). Only on the
+// real website (http/https) — not inside the Capacitor native app.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}

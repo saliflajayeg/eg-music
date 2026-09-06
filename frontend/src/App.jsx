@@ -4,6 +4,7 @@ import { AuthProvider }  from './context/AuthContext'
 import { MediaProvider } from './context/MediaContext'
 import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
+import InstallPrompt from './components/InstallPrompt'
 import Home      from './pages/Home'
 import Explore   from './pages/Explore'
 import Login     from './pages/Login'
@@ -53,6 +54,7 @@ export default function App() {
             </Routes>
           </div>
         </div>
+        <InstallPrompt />
       </MediaProvider>
     </AuthProvider>
   )

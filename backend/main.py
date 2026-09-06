@@ -924,6 +924,24 @@ def share_page_track(track_id: int):
 def share_page_watch(track_id: int):
     return _spa_with_og(track_id)
 
+# ── PWA: service worker + manifest served from the root with correct types ─────
+
+@app.get("/sw.js")
+def service_worker():
+    f = _STATIC / "sw.js"
+    if not f.is_file():
+        raise HTTPException(404)
+    return FileResponse(str(f), media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    f = _STATIC / "manifest.webmanifest"
+    if not f.is_file():
+        raise HTTPException(404)
+    return FileResponse(str(f), media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
+
 # ── Static frontend (SPA) ──────────────────────────────────────────────────────
 
 if _STATIC.is_dir():
