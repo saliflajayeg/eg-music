@@ -40,7 +40,7 @@ export default function Home() {
       {/* Discover categories */}
       <SectionHead title="Descubre música" to="/explore" />
       <div style={s.catGrid}>
-        <CatCard to="/explore" icon="🇬🇶" label="Top 50 Ecuatoguineana" tint="linear-gradient(135deg,#149954,#1c6dd0)" />
+        <CatCard to="/explore" label="Top 50 del País" bgImg="/flag-ge.png" />
         <CatCard to="/explore" icon="🔥" label="Nuevos Lanzamientos" tint="linear-gradient(135deg,#ec1c2b,#7a0f16)" />
         <CatCard to="/explore" icon="📈" label="Tendencias" tint="linear-gradient(135deg,#ff3a46,#3a0a0e)" />
         <CatCard to={user ? '/playlists' : '/login'} icon="❤️" label="Para ti" tint="linear-gradient(135deg,#e8202a,#2a0709)" />
@@ -113,13 +113,12 @@ function Hero() {
       <div style={s.heroGlow} />
       <div style={s.heroContent}>
         <div style={s.heroEyebrow}>NUEVOS SONIDOS</div>
-        <h2 style={s.heroTitle}>MÚSICA<br/><span style={{ color:'var(--accent)' }}>SIN LÍMITES</span></h2>
+        <h2 style={s.heroTitle}>SONIDO<br/><span style={{ color:'var(--accent)' }}>NACIONAL</span></h2>
         <div style={s.heroSub}>Descubre. Escucha. Comparte.</div>
         <button style={s.heroBtn} onClick={e => { e.stopPropagation(); navigate('/explore') }}>
           Explorar ahora →
         </button>
       </div>
-      <div style={s.heroScript}>Good&nbsp;Music<br/>Better&nbsp;People</div>
       <div style={s.dots}>{[0,1,2,3].map(i => <span key={i} style={{ ...s.dot, ...(i===0 ? s.dotOn : {}) }} />)}</div>
     </div>
   )
@@ -134,7 +133,16 @@ function SectionHead({ title, to }) {
   )
 }
 
-function CatCard({ to, icon, label, tint }) {
+function CatCard({ to, icon, label, tint, bgImg }) {
+  if (bgImg) {
+    return (
+      <Link to={to} style={{ ...s.catCard, justifyContent:'flex-end' }}>
+        <img src={bgImg} alt="" style={s.catBg} />
+        <div style={s.catBgOverlay} />
+        <div style={{ ...s.catLabel, position:'relative', zIndex:1 }}>{label}</div>
+      </Link>
+    )
+  }
   return (
     <Link to={to} style={s.catCard}>
       <div style={{ ...s.catIcon, background:tint }}>{icon}</div>
@@ -215,9 +223,12 @@ const s = {
 
   catGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(150px,1fr))', gap:12, marginBottom:26 },
   catCard: {
+    position:'relative', overflow:'hidden',
     display:'flex', flexDirection:'column', gap:10, padding:14,
     background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:14, minHeight:96, justifyContent:'space-between',
   },
+  catBg: { position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter:'blur(6px) saturate(1.15)', transform:'scale(1.25)', zIndex:0 },
+  catBgOverlay: { position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(10,6,7,.15), rgba(10,6,7,.7))', zIndex:0 },
   catIcon: { width:40, height:40, borderRadius:11, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 },
   catLabel: { fontSize:13.5, fontWeight:700, color:'var(--text)', lineHeight:1.25 },
 
