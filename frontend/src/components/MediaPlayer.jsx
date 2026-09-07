@@ -268,7 +268,7 @@ export default function MediaPlayer() {
   const clip = clipCut > 0 ? `inset(${clipCut}px 0 0 0)` : 'none'
 
   const frameStyle = !expanded
-    ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':20), left:(isMobile?10:12), width:(isMobile?72:107), height:(isMobile?40:60), borderRadius:6, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
+    ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':14), left:(isMobile?10:14), width:(isMobile?52:56), height:(isMobile?52:56), borderRadius:9, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
     : wide
       ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
       : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
@@ -361,33 +361,42 @@ export default function MediaPlayer() {
   )
 
   // The bottom-bar chrome (collapsed state).
-  const barVolume = (
-    <div style={s.barVol}>
-      <button onClick={toggleMute} style={s.barIcon} title={muted||vol===0 ? 'Activar sonido' : 'Silenciar'} aria-label="Volumen">
-        {muted||vol===0 ? <IcoVolMute/> : <IcoVol/>}
-      </button>
-      {!isMobile && (
-        <input type="range" min={0} max={1} step={0.02} value={muted?0:vol}
-          onChange={e => setVolume(Number(e.target.value))} style={s.barVolSlider} aria-label="Volumen" />
-      )}
+  const coverClear = (isMobile ? 62 : 70) + 12   // mini frame width + left + gap
+  const barSeek = (
+    <div style={s.barSeekWrap}
+      onMouseDown={e => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        const go = ev => seekTo(Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width)) * dur)
+        go(e)
+        const move = ev => go(ev), up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+      }}
+      onTouchStart={e => { const r = e.currentTarget.getBoundingClientRect(), t = e.touches[0]; seekTo(Math.min(1, Math.max(0, (t.clientX - r.left) / r.width)) * dur) }}>
+      <div style={s.barSeekTrack}>
+        <div style={{ ...s.barSeekFill, width:`${pct}%` }} />
+        <div style={{ ...s.barSeekKnob, left:`${pct}%` }} />
+      </div>
     </div>
   )
 
   const barChrome = (
-    <div style={{ ...s.bar, height: isMobile ? 64 : 80 }}>
-      <div style={s.barProg}><div style={{ ...s.barFill, width:`${pct}%` }} /></div>
-      <div style={{ ...s.barRow, paddingLeft: (isMobile?72:107) + (isMobile?18:24) }}>
+    <div style={{ ...s.bar, height: isMobile ? 78 : 84 }}>
+      <div style={{ ...s.barTop, paddingLeft: coverClear }}>
         <div style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={expand}>
           <div style={s.barTitle}>{current.title}</div>
           <div style={s.barArtist}>{artistName}</div>
         </div>
-        {barVolume}
-        {!isMobile && <button onClick={() => _apiRef.current.prev?.()} style={s.barIcon} title="Anterior"><IcoPrev /></button>}
-        <button onClick={() => _apiRef.current.toggle?.()} style={s.barPlay}>{isPlaying?<IcoPause/>:<IcoPlay/>}</button>
+        {user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--accent)':'var(--text2)', fontSize:17 }} title="Me gusta">{liked?'♥':'♡'}</button>}
+        <button onClick={() => _apiRef.current.prev?.()} style={s.barIcon} title="Anterior"><IcoPrev /></button>
+        <button onClick={() => _apiRef.current.toggle?.()} style={s.barPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause/>:<IcoPlay/>}</button>
         <button onClick={next} style={s.barIcon} title="Siguiente"><IcoNext /></button>
-        {!isMobile && <button onClick={handleShare} style={s.barIcon} title="Compartir"><IcoShare /></button>}
-        {!isMobile && user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--danger)':'var(--text3)', fontSize:18 }}>{liked?'♥':'♡'}</button>}
-        <button onClick={close} style={s.barIcon} title="Cerrar">✕</button>
+        <button onClick={expand} style={s.barIcon} title="Abrir reproductor"><IcoSliders /></button>
+        {!isMobile && <button onClick={close} style={s.barIcon} title="Cerrar">✕</button>}
+      </div>
+      <div style={{ ...s.barBottom, paddingLeft: coverClear }}>
+        <span style={s.barTime}>{fmt(cur)}</span>
+        {barSeek}
+        <span style={s.barTime}>{fmt(dur)}</span>
       </div>
     </div>
   )
@@ -524,6 +533,7 @@ const IcoShare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+const IcoSliders = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
 const IcoShuffle = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
 const IcoRepeat = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
 const IcoRepeatOne = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" fill="currentColor"/></svg>
@@ -532,16 +542,18 @@ const IcoVol = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="curre
 const IcoVolMute = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.18l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
 
 const s = {
-  bar: { position:'fixed', left:0, right:0, bottom:'var(--bottomnav-h)', zIndex:150, background:'var(--bg2)', borderTop:'1px solid var(--border)' },
-  barProg: { position:'absolute', top:0, left:0, right:0, height:3, background:'var(--bg4)' },
-  barFill: { height:'100%', background:'var(--accent)' },
-  barRow: { display:'flex', alignItems:'center', gap:8, height:'100%', paddingRight:12 },
-  barTitle: { fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  barArtist: { fontSize:12, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  bar: { position:'fixed', left:0, right:0, bottom:'var(--bottomnav-h)', zIndex:150, background:'var(--bg2)', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', justifyContent:'center', gap:2 },
+  barTop: { display:'flex', alignItems:'center', gap:6, paddingRight:10 },
+  barBottom: { display:'flex', alignItems:'center', gap:8, paddingRight:12 },
+  barTitle: { fontSize:13.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  barArtist: { fontSize:12, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 },
   barIcon: { color:'var(--text2)', display:'flex', alignItems:'center', justifyContent:'center', padding:5, flexShrink:0, background:'none', border:'none', cursor:'pointer' },
-  barPlay: { width:38, height:38, borderRadius:'50%', background:'var(--accent)', color:'#fff', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', border:'none', cursor:'pointer' },
-  barVol: { display:'flex', alignItems:'center', gap:4, flexShrink:0 },
-  barVolSlider: { width:74, accentColor:'var(--accent)', cursor:'pointer' },
+  barPlay: { width:46, height:46, borderRadius:'50%', background:'var(--accent)', color:'#fff', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', border:'none', cursor:'pointer', boxShadow:'0 3px 14px rgba(236,28,43,.45)' },
+  barTime: { fontSize:10.5, color:'var(--text3)', fontVariantNumeric:'tabular-nums', flexShrink:0, minWidth:30, textAlign:'center' },
+  barSeekWrap: { flex:1, padding:'7px 0', cursor:'pointer' },
+  barSeekTrack: { position:'relative', height:4, borderRadius:3, background:'var(--bg4)' },
+  barSeekFill: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'var(--accent)' },
+  barSeekKnob: { position:'absolute', top:'50%', width:11, height:11, borderRadius:'50%', background:'var(--accent)', transform:'translate(-50%,-50%)', boxShadow:'0 0 0 3px rgba(236,28,43,.3)' },
 
   fsHeader: { position:'fixed', top:0, left:0, right:0, height:HEADER_H, zIndex:165, background:'var(--bg)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, padding:'0 12px' },
   fsHeaderTitle: { flex:1, fontSize:14, fontWeight:600, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
