@@ -71,7 +71,7 @@ export default function InstallPrompt() {
 
 const s = {
   wrap: {
-    position:'fixed', left:12, right:12, bottom:'calc(var(--player-h, 0px) + 12px)', zIndex:200,
+    position:'fixed', left:12, right:12, bottom:'calc(var(--player-h, 0px) + var(--bottomnav-h, 0px) + 12px)', zIndex:200,
     maxWidth:460, margin:'0 auto', display:'flex', alignItems:'center', gap:12,
     background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:14,
     padding:'12px 14px', boxShadow:'0 12px 34px rgba(0,0,0,.4)',

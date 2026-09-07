@@ -268,7 +268,7 @@ export default function MediaPlayer() {
   const clip = clipCut > 0 ? `inset(${clipCut}px 0 0 0)` : 'none'
 
   const frameStyle = !expanded
-    ? { position:'fixed', bottom:(isMobile?12:20), left:(isMobile?10:12), width:(isMobile?72:107), height:(isMobile?40:60), borderRadius:6, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
+    ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':20), left:(isMobile?10:12), width:(isMobile?72:107), height:(isMobile?40:60), borderRadius:6, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
     : wide
       ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
       : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
@@ -532,7 +532,7 @@ const IcoVol = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="curre
 const IcoVolMute = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12A4.5 4.5 0 0 0 14 8v2.18l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
 
 const s = {
-  bar: { position:'fixed', left:0, right:0, bottom:0, zIndex:150, background:'var(--bg2)', borderTop:'1px solid var(--border)' },
+  bar: { position:'fixed', left:0, right:0, bottom:'var(--bottomnav-h)', zIndex:150, background:'var(--bg2)', borderTop:'1px solid var(--border)' },
   barProg: { position:'absolute', top:0, left:0, right:0, height:3, background:'var(--bg4)' },
   barFill: { height:'100%', background:'var(--accent)' },
   barRow: { display:'flex', alignItems:'center', gap:8, height:'100%', paddingRight:12 },

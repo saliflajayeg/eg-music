@@ -26,11 +26,12 @@ export default function Navbar() {
 
   const logo = (
     <div style={{display:'flex', alignItems:'center', gap:isMobile ? 10 : 16, flexShrink:0}}>
-      <Link to="/" style={s.logo}>
+      <Link to="/" style={{ ...s.logo, flexDirection:'column', alignItems:'flex-start', gap:1 }}>
         <img src="/logo.png" alt="EG Music"
-          style={{...s.logoImg, height: isMobile ? 24 : 28}} />
+          style={{...s.logoImg, height: isMobile ? 22 : 26}} />
+        <span style={s.tagline}>MÁS QUE MÚSICA</span>
       </Link>
-      <Link to="/explore" style={s.exploreLink}>Explorar</Link>
+      {!isMobile && <Link to="/explore" style={s.exploreLink}>Explorar</Link>}
     </div>
   )
 
@@ -258,6 +259,7 @@ const s = {
   },
   logo: { display:'flex', alignItems:'center', flexShrink:0 },
   logoImg: { width:'auto', display:'block' },
+  tagline: { fontSize:8, letterSpacing:'.22em', color:'var(--text3)', fontWeight:700 },
   exploreLink: {
     color:'var(--text2)', fontWeight:600, fontSize:13,
     padding:'6px 10px', borderRadius:7, transition:'all .15s', whiteSpace:'nowrap',

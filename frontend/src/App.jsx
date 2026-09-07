@@ -4,6 +4,7 @@ import { AuthProvider }  from './context/AuthContext'
 import { MediaProvider } from './context/MediaContext'
 import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
+import BottomNav from './components/BottomNav'
 import InstallPrompt from './components/InstallPrompt'
 import Home      from './pages/Home'
 import Explore   from './pages/Explore'
@@ -32,7 +33,7 @@ export default function App() {
         <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg)' }}>
           <div className="flag-bar" />
           <Navbar />
-          <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', paddingBottom:'var(--player-h)' }}>
+          <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', paddingBottom:'calc(var(--player-h) + var(--bottomnav-h))' }}>
             <Routes>
               <Route path="/"          element={<Home />} />
               <Route path="/explore"   element={<Explore />} />
@@ -54,6 +55,7 @@ export default function App() {
             </Routes>
           </div>
         </div>
+        <BottomNav />
         <InstallPrompt />
       </MediaProvider>
     </AuthProvider>
