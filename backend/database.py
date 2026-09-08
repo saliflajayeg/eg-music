@@ -820,6 +820,12 @@ class Database:
         )
         self.conn.commit()
 
+    def accept_track_collabs(self, track_id):
+        """Marca aceptados a todos los colaboradores del tema (uso admin/curador)."""
+        self.conn.execute(
+            "UPDATE track_artists SET status='accepted' WHERE track_id=?", (track_id,))
+        self.conn.commit()
+
     def get_pending_collabs(self, user_id):
         rows = self.conn.execute('''
             SELECT ta.track_id, ta.percent, ta.role, t.title, t.cover, t.media_type,

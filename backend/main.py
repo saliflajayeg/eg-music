@@ -471,6 +471,85 @@ async def upload_track(
 
     return db.get_track(tid, viewer_id=user['id'])
 
+@app.post("/api/admin/tracks", status_code=201)
+async def admin_upload_track(
+    owner_user_id: int = Form(...),   # el artista dueño de la canción
+    title:       str  = Form(...),
+    artist:      str  = Form(...),
+    album:       str  = Form(''),
+    genre:       str  = Form(''),
+    description: str  = Form(''),
+    collaborators: str = Form(''),    # JSON: [{user_id, percent}]
+    publish_at:  str  = Form(''),
+    duration:    float = Form(0),     # override opcional (SoundCloud m4a / vídeo dan 0)
+    audio:       UploadFile = File(...),
+    cover:       Optional[UploadFile] = File(None),
+    user=Depends(require_admin),
+):
+    """Sube una canción/vídeo A NOMBRE de otro artista (owner_user_id). Solo admin:
+    para poblar la plataforma sin pedir las credenciales de cada artista. Los
+    colaboradores quedan ACEPTADOS directamente (el admin es autoridad)."""
+    owner = db.get_user_by_id(owner_user_id)
+    if not owner:
+        raise HTTPException(404, "El artista (owner_user_id) no existe")
+    ext = Path(audio.filename).suffix.lower()
+    if ext in AUDIO_MIME:   media_type = 'audio'
+    elif ext in VIDEO_MIME: media_type = 'video'
+    else: raise HTTPException(400, f"Formato no soportado: {ext}")
+
+    audio_fname = f"track_{owner_user_id}_{uuid.uuid4().hex}{ext}"
+    audio_data  = await audio.read()
+    (TRACKS_DIR / audio_fname).write_bytes(audio_data)
+    dur = float(duration) if duration and duration > 0 else 0.0
+    if not dur and media_type == 'audio':
+        try:
+            from mutagen import File as MFile
+            m = MFile(str(TRACKS_DIR / audio_fname))
+            if m: dur = m.info.length
+        except Exception:
+            pass
+    if storage.enabled():
+        storage.put(f'tracks/{audio_fname}', audio_data, _mime(audio_fname, MEDIA_MIME))
+        (TRACKS_DIR / audio_fname).unlink(missing_ok=True)
+
+    cover_fname = ''
+    if cover and cover.filename:
+        cext = Path(cover.filename).suffix.lower()
+        if cext in IMAGE_MIME:
+            cover_fname = f"cover_{owner_user_id}_{uuid.uuid4().hex[:8]}{cext}"
+            cover_data = await cover.read()
+            if storage.enabled():
+                storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
+            else:
+                (COVERS_DIR / cover_fname).write_bytes(cover_data)
+
+    tid = db.create_track(
+        owner_user_id, title.strip(), artist.strip(), album.strip(),
+        genre.strip(), description.strip(), audio_fname, cover_fname, dur,
+        media_type, publish_at=_parse_publish_at(publish_at))
+
+    collabs = []
+    if collaborators:
+        try:
+            parsed = json.loads(collaborators)
+            if isinstance(parsed, list): collabs = parsed[:10]
+        except Exception:
+            raise HTTPException(400, "Colaboradores inválidos")
+    total = 0.0
+    for c in collabs:
+        try: p = float(c.get('percent') or 0)
+        except (TypeError, ValueError): raise HTTPException(400, "Porcentaje inválido")
+        if p <= 0 or p >= 100: raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
+        total += p
+    if total >= 100:
+        raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    db.set_track_artists(tid, owner_user_id, round(100.0 - total, 2), collabs)
+    db.accept_track_collabs(tid)   # admin => colaboradores aceptados directamente
+
+    if media_type == 'video' and not storage.enabled():
+        db.set_sd_status(tid, 'pending'); transcode.enqueue(tid)
+    return db.get_track(tid, viewer_id=owner_user_id)
+
 @app.delete("/api/tracks/{track_id}")
 def delete_track(track_id: int, user=Depends(require_user)):
     t = db.get_track(track_id)
