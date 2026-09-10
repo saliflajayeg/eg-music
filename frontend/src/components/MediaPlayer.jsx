@@ -92,12 +92,21 @@ export default function MediaPlayer() {
     if (paneRef.current) paneRef.current.scrollTop = 0
   }, [current.id, expanded])
 
-  // Similar songs for the rail: same genre first, else a general mix.
+  // Recommendations for the rail: same genre first, topped up with a general
+  // mix when the genre is thin (so it's never empty).
   useEffect(() => {
     let cancel = false
-    getFeed(0, 25, 'random', current.genre || '')
-      .then(list => { if (!cancel) setSuggestions((list || []).filter(t => t.id !== current.id)) })
-      .catch(() => { if (!cancel) setSuggestions([]) })
+    ;(async () => {
+      try {
+        let arr = (await getFeed(0, 25, 'random', current.genre || '') || []).filter(t => t.id !== current.id)
+        if (arr.length < 6) {
+          const more = await getFeed(0, 25, 'random', '').catch(() => [])
+          const seen = new Set([current.id, ...arr.map(t => t.id)])
+          arr = arr.concat((more || []).filter(t => !seen.has(t.id)))
+        }
+        if (!cancel) setSuggestions(arr)
+      } catch { if (!cancel) setSuggestions([]) }
+    })()
     return () => { cancel = true }
   }, [current.id, current.genre])
 
@@ -388,11 +397,19 @@ export default function MediaPlayer() {
           <div style={s.barTitle}>{current.title}</div>
           <div style={s.barArtist}>{artistName}</div>
         </div>
-        {user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--accent)':'var(--text2)', fontSize:17 }} title="Me gusta">{liked?'♥':'♡'}</button>}
+        {!isMobile && user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--accent)':'var(--text2)', fontSize:17 }} title="Me gusta">{liked?'♥':'♡'}</button>}
+        <button onClick={toggleShuffle} style={{ ...s.barIcon, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
         <button onClick={() => _apiRef.current.prev?.()} style={s.barIcon} title="Anterior"><IcoPrev /></button>
         <button onClick={() => _apiRef.current.toggle?.()} style={s.barPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause/>:<IcoPlay/>}</button>
         <button onClick={next} style={s.barIcon} title="Siguiente"><IcoNext /></button>
-        <button onClick={expand} style={s.barIcon} title="Abrir reproductor"><IcoSliders /></button>
+        <button onClick={cycleRepeat} style={{ ...s.barIcon, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
+        {!isMobile && (
+          <span style={s.barVol}>
+            <button onClick={toggleMute} style={s.barIcon} title={muted||vol===0?'Activar sonido':'Silenciar'}>{muted||vol===0?<IcoVolMute/>:<IcoVol/>}</button>
+            <input type="range" min={0} max={1} step={0.02} value={muted?0:vol} onChange={e => setVolume(Number(e.target.value))} style={s.barVolSlider} aria-label="Volumen" />
+          </span>
+        )}
+        <button onClick={expand} style={s.barIcon} title="Abrir reproductor completo"><IcoSliders /></button>
         {!isMobile && <button onClick={close} style={s.barIcon} title="Cerrar">✕</button>}
       </div>
       <div style={{ ...s.barBottom, paddingLeft: coverClear }}>
@@ -622,6 +639,8 @@ const s = {
   barArtist: { fontSize:12, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 },
   barIcon: { color:'var(--text2)', display:'flex', alignItems:'center', justifyContent:'center', padding:5, flexShrink:0, background:'none', border:'none', cursor:'pointer' },
   barPlay: { width:46, height:46, borderRadius:'50%', background:'var(--accent)', color:'#fff', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', border:'none', cursor:'pointer', boxShadow:'0 3px 14px rgba(236,28,43,.45)' },
+  barVol: { display:'flex', alignItems:'center', gap:4, flexShrink:0 },
+  barVolSlider: { width:70, accentColor:'var(--accent)', cursor:'pointer' },
   barTime: { fontSize:10.5, color:'var(--text3)', fontVariantNumeric:'tabular-nums', flexShrink:0, minWidth:30, textAlign:'center' },
   barSeekWrap: { flex:1, padding:'7px 0', cursor:'pointer' },
   barSeekTrack: { position:'relative', height:4, borderRadius:3, background:'var(--bg4)' },

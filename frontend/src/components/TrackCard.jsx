@@ -11,10 +11,11 @@ import AddToPlaylist from './AddToPlaylist'
 // YouTube-style card: a big 16:9 thumbnail leads, title + artist below.
 // onRemove(id): when given (e.g. inside a playlist), shows a "Quitar" action.
 export default function TrackCard({ track, queue, onDelete, onRemove }) {
-  const { play, current, isPlaying } = useMedia()
+  const { play, current, isPlaying, addToQueue } = useMedia()
   const { user } = useAuth()
   const navigate = useNavigate()
   const isVideo = track.media_type === 'video'
+  const [queued, setQueued] = useState(false)
   const [liked,     setLiked]     = useState(!!track.liked_by_me)
   const [likeCount, setLikeCount] = useState(track.like_count || 0)
   const [err,       setErr]       = useState(false)
@@ -110,6 +111,10 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
             {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
           </button>
           <button onClick={handleShare} style={s.actBtn} title="Compartir"><IcoShare /></button>
+          <button onClick={(e) => { e.stopPropagation(); addToQueue(track); setQueued(true); setTimeout(() => setQueued(false), 1500) }}
+            style={{ ...s.actBtn, color: queued ? 'var(--accent)' : 'var(--text3)' }} title="Añadir a la cola">
+            {queued ? '✓' : <IcoQueue />}
+          </button>
           <AddToPlaylist trackId={track.id} compact />
           {onRemove && (
             <button onClick={(e) => { e.stopPropagation(); onRemove(track.id) }} style={s.actBtn} title="Quitar de la lista">Quitar</button>
@@ -128,6 +133,10 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
   )
 }
 
+const IcoQueue = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6h13M3 12h13M3 18h9"/><path d="M19 15v6M22 18h-6"/></svg>
+)
 const IcoShare = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>

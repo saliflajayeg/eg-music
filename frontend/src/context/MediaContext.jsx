@@ -60,6 +60,16 @@ export function MediaProvider({ children }) {
     if (location.pathname.startsWith('/watch/')) navigate('/')
   }, [navigate, location.pathname])
 
+  // Add a track to the end of the play queue. If nothing is playing yet, it
+  // becomes the current track (starts the queue). Ignores duplicates.
+  const addToQueue = useCallback((track) => {
+    setQueue(q => {
+      if (!q.length) { setIndex(0); return [track] }
+      if (q.some(t => t.id === track.id)) return q
+      return [...q, track]
+    })
+  }, [])
+
   // Radio-style: cue a random song when the app opens. Browsers block autoplay
   // with sound until a gesture, so we start on the first interaction.
   useEffect(() => {
@@ -96,7 +106,7 @@ export function MediaProvider({ children }) {
 
   const value = {
     queue, index, current, isPlaying, expanded, shuffle, repeat,
-    play, togglePlay, next, prev, seek, close,
+    play, togglePlay, next, prev, seek, close, addToQueue,
     toggleShuffle: () => setShuffle(s => !s),
     cycleRepeat: () => setRepeat(r => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')),
     // Open the full player as its own page; minimize returns to where you were
