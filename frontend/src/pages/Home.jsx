@@ -209,7 +209,7 @@ const s = {
   heroGlow: { position:'absolute', right:-40, top:-40, width:220, height:220, borderRadius:'50%', background:'radial-gradient(circle, rgba(236,28,43,.35), transparent 70%)', pointerEvents:'none' },
   heroContent: { position:'relative', zIndex:1, maxWidth:'70%' },
   heroEyebrow: { color:'var(--accent)', fontSize:11, fontWeight:800, letterSpacing:'.18em' },
-  heroTitle: { fontSize:'clamp(26px,7vw,40px)', fontWeight:900, lineHeight:1.02, letterSpacing:'-.01em', margin:'8px 0 6px' },
+  heroTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(30px,8vw,46px)', fontWeight:800, lineHeight:.92, letterSpacing:'-.02em', textTransform:'uppercase', margin:'10px 0 8px' },
   heroSub: { color:'var(--text2)', fontSize:14, marginBottom:16 },
   heroBtn: { background:'var(--accent)', color:'#fff', fontWeight:700, fontSize:14, border:'none', borderRadius:24, padding:'11px 20px', cursor:'pointer' },
   heroScript: { position:'absolute', right:18, top:20, textAlign:'right', fontFamily:'Georgia, serif', fontStyle:'italic', fontSize:15, color:'#fff', opacity:.9, lineHeight:1.3, zIndex:1 },
@@ -218,7 +218,7 @@ const s = {
   dotOn: { width:18, background:'var(--accent)' },
 
   secHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, marginTop:6 },
-  secTitle: { fontSize:19, fontWeight:800, letterSpacing:'-.01em' },
+  secTitle: { fontFamily:'var(--font-display)', fontSize:20, fontWeight:800, letterSpacing:'-.01em' },
   verTodo: { fontSize:13, fontWeight:700, color:'var(--accent)', flexShrink:0 },
 
   catGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(150px,1fr))', gap:12, marginBottom:26 },
@@ -236,7 +236,7 @@ const s = {
 
   topList: { display:'flex', flexDirection:'column', gap:8 },
   topRow: { display:'flex', alignItems:'center', gap:13, padding:'8px 12px', background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:14 },
-  rank: { fontSize:19, fontWeight:900, width:24, textAlign:'center', flexShrink:0, fontVariantNumeric:'tabular-nums' },
+  rank: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:22, fontWeight:800, width:26, textAlign:'center', flexShrink:0, fontVariantNumeric:'tabular-nums' },
   topCover: { width:46, height:46, borderRadius:9, objectFit:'cover', flexShrink:0, background:'var(--bg3)' },
   topTitle: { fontWeight:700, fontSize:14, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
   topArtist: { fontSize:12, color:'var(--text3)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:2 },

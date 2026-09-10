@@ -78,6 +78,7 @@ export default function MediaPlayer() {
   const hideTimer = useRef(null)
   const scrollRef = useRef(0)   // how far the page has scrolled (media slides with it)
   const paneRef   = useRef(null)
+  const baseTopRef = useRef(0)  // top of the media frame before scroll (for scroll-sync)
   const [suggestions, setSuggestions] = useState([])   // similar tracks (same genre)
 
   const countedRef = useRef(false)
@@ -262,23 +263,28 @@ export default function MediaPlayer() {
   // modes so its parent never changes; only its rect animates.
   // The media slides up with the page. Its top follows the scroll and the part
   // that passes above the header line is clipped, so it tucks away like YouTube.
-  const baseTop = wide ? HEAD + 18 : HEAD
+  const AUDIO_SQ = 'min(300px, 74vw)'
+  const audioExpanded = expanded && !isVideo
+  const baseTop = audioExpanded ? HEAD + 16 : (wide ? HEAD + 18 : HEAD)
+  baseTopRef.current = baseTop
   const frameTop = baseTop - scrollRef.current
   const clipCut = Math.max(0, HEAD - frameTop)
   const clip = clipCut > 0 ? `inset(${clipCut}px 0 0 0)` : 'none'
 
   const frameStyle = !expanded
     ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':14), left:(isMobile?10:14), width:(isMobile?52:56), height:(isMobile?52:56), borderRadius:9, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
-    : wide
-      ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
-      : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
+    : isVideo
+      ? (wide
+          ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
+          : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip })
+      : { position:'fixed', top:frameTop, left:'50%', transform:'translateX(-50%)', width:AUDIO_SQ, height:AUDIO_SQ, borderRadius:22, overflow:'hidden', background:'var(--bg2)', zIndex:160, clipPath:clip, boxShadow:'0 30px 70px -22px rgba(236,28,43,.5)' }
 
   // Move the media with the scroll directly (no re-render) for a smooth slide.
   function onPaneScroll(e) {
     scrollRef.current = e.currentTarget.scrollTop
     const w = wrapRef.current
     if (!w || !expanded) return
-    const top = (wide ? HEAD + 18 : HEAD) - scrollRef.current
+    const top = baseTopRef.current - scrollRef.current
     const cut = Math.max(0, HEAD - top)
     w.style.top = top + 'px'
     w.style.clipPath = cut > 0 ? `inset(${cut}px 0 0 0)` : 'none'
@@ -287,7 +293,7 @@ export default function MediaPlayer() {
   // YouTube-style controls painted ON the frame (auto-hiding) — for BOTH audio
   // (over its cover) and video, so a song looks and works exactly like a video.
   // Quality/PiP/fullscreen are video-only. The mini bar keeps its own chrome.
-  const frameControls = expanded && (
+  const frameControls = isVideo && expanded && (
     <>
       {!isPlaying && (
         <button onClick={e => { e.stopPropagation(); _apiRef.current.toggle?.() }} style={s.ovCenter} aria-label="Reproducir">
@@ -345,16 +351,10 @@ export default function MediaPlayer() {
       <video ref={videoRef} src={src || undefined} playsInline
         style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#000' }}
         onLoadedMetadata={onLoadedMeta} />
-      {/* Audio fills the SAME 16:9 frame with its cover — never a shrunken square. */}
-      {!isVideo && (!expanded
-        ? <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
-            style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
-        : <>
-            <div style={{ position:'absolute', inset:0, backgroundImage:`url(${trackCoverUrl(current.id)})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(28px) brightness(.45)', transform:'scale(1.2)' }} />
-            <div style={{ position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(6,10,8,.2), rgba(6,10,8,.6))' }} />
-            <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
-              style={{ position:'absolute', top:'44%', left:'50%', transform:'translate(-50%,-50%)', height:'66%', aspectRatio:'1', objectFit:'cover', borderRadius:12, boxShadow:'0 16px 40px -12px rgba(0,0,0,.75)' }} />
-          </>
+      {/* Audio shows its cover filling the frame (a big square when expanded). */}
+      {!isVideo && (
+        <img src={trackCoverUrl(current.id)} alt="" onError={e => { e.target.style.display='none' }}
+          style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} />
       )}
       {frameControls}
     </div>
@@ -481,6 +481,58 @@ export default function MediaPlayer() {
     </div>
   )
 
+  const scrollComments = () => { const p = paneRef.current; if (p) p.scrollTo({ top: p.scrollHeight, behavior:'smooth' }) }
+
+  // The full audio player ("Reproduciendo"): big cover (the media frame above) +
+  // transport, volume and every option, in one focused column.
+  const nowPlaying = (
+    <>
+      <div style={s.npTitleRow}>
+        <div style={{ minWidth:0, flex:1 }}>
+          <h1 style={s.npTitle}>{current.title}</h1>
+          <ArtistLine track={current} style={s.npArtist} showSplit={(current.artists||[]).length>1} />
+        </div>
+        {user && <button onClick={handleLike} style={{ ...s.npHeart, color: liked?'var(--accent)':'var(--text2)' }} aria-label="Me gusta"><IcoHeart filled={liked} /></button>}
+      </div>
+
+      <div style={s.npSeekWrap} onMouseDown={e => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        const go = ev => seekTo(Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width)) * dur)
+        go(e)
+        const move = ev => go(ev), up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+      }}
+        onTouchStart={e => { const r = e.currentTarget.getBoundingClientRect(), t = e.touches[0]; seekTo(Math.min(1, Math.max(0, (t.clientX - r.left) / r.width)) * dur) }}>
+        <div style={s.npTrack}>
+          <div style={{ ...s.npBuf, width:`${bufPct}%` }} />
+          <div style={{ ...s.npFill, width:`${pct}%` }} />
+          <div style={{ ...s.npKnob, left:`${pct}%` }} />
+        </div>
+      </div>
+      <div style={s.npTimes}><span>{fmt(cur)}</span><span>{fmt(dur)}</span></div>
+
+      <div style={s.npTransport}>
+        <button onClick={toggleShuffle} style={{ ...s.npSec, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
+        <button onClick={() => _apiRef.current.prev?.()} style={s.npSkip} title="Anterior"><IcoPrev /></button>
+        <button onClick={() => _apiRef.current.toggle?.()} style={s.npPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause big/>:<IcoPlay big/>}</button>
+        <button onClick={next} style={s.npSkip} title="Siguiente"><IcoNext /></button>
+        <button onClick={cycleRepeat} style={{ ...s.npSec, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
+      </div>
+
+      <div style={s.npVol}>
+        <button onClick={toggleMute} style={s.npVolBtn} aria-label="Volumen">{muted||vol===0?<IcoVolMute/>:<IcoVol/>}</button>
+        <input type="range" min={0} max={1} step={0.02} value={muted?0:vol} onChange={e => setVolume(Number(e.target.value))} style={s.npVolSlider} aria-label="Volumen" />
+      </div>
+
+      <div style={s.npOpts}>
+        {isNative() && <NpOpt icon={<IcoDownloadLine/>} label={dl==='busy'?'…':dl==='done'?'Descargado':'Descargar'} active={dl==='done'} onClick={handleDownload} />}
+        <div style={{ flex:1, display:'flex', justifyContent:'center' }}><AddToPlaylist trackId={current.id} /></div>
+        <NpOpt icon={<IcoShare/>} label="Compartir" onClick={handleShare} />
+        <NpOpt icon={<IcoComment/>} label="Comentar" onClick={scrollComments} />
+      </div>
+    </>
+  )
+
   // Single return: the media surface is ALWAYS the first child so the <video>
   // never remounts (everything is position:fixed, so DOM order ≠ visual order).
   return (
@@ -498,7 +550,13 @@ export default function MediaPlayer() {
         <button onClick={close} style={s.fsIcon} title="Cerrar">✕</button>
       </div>
 
-      {wide ? (
+      {!isVideo ? (
+        <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsBody, top: HEAD, maxWidth:480, paddingTop:`calc(${AUDIO_SQ} + 34px)` }}>
+          {nowPlaying}
+          {upNextBlock}
+          {commentsBlock}
+        </div>
+      ) : wide ? (
         <>
           <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsLeft, top: HEAD, left: STAGE_LEFT, width: MAIN_W, paddingTop:`calc(${mediaH} + 36px)` }}>
             {infoBlock}
@@ -521,6 +579,14 @@ export default function MediaPlayer() {
   )
 }
 
+function NpOpt({ icon, label, onClick, active }) {
+  return (
+    <button onClick={onClick} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:7, background:'none', border:'none', cursor:'pointer', fontSize:11, fontWeight:600, color: active ? 'var(--accent)' : 'var(--text2)' }}>
+      <span style={{ display:'flex' }}>{icon}</span>{label}
+    </button>
+  )
+}
+
 function QItem({ label, active, disabled, onClick }) {
   return <button onClick={onClick} disabled={disabled} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:7, fontSize:13, background:'none', border:'none', cursor:'pointer', color: disabled?'var(--text3)':'#fff', fontWeight: active?700:400 }}><span style={{width:14,display:'inline-block'}}>{active?'✓':''}</span> {label}</button>
 }
@@ -534,6 +600,11 @@ const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fil
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
 const IcoSliders = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+const IcoHeart = ({filled}) => filled
+  ? <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.3-10.5-11C.3 6.7 2.3 4 5.5 4 7.6 4 9 5.4 12 8c3-2.6 4.4-4 6.5-4 3.2 0 5.2 2.7 4 6C20.5 15.7 12 21 12 21z"/></svg>
+  : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s-8.5-5.3-10.5-11C.3 6.7 2.3 4 5.5 4 7.6 4 9 5.4 12 8c3-2.6 4.4-4 6.5-4 3.2 0 5.2 2.7 4 6C20.5 15.7 12 21 12 21z"/></svg>
+const IcoDownloadLine = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+const IcoComment = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 const IcoShuffle = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
 const IcoRepeat = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
 const IcoRepeatOne = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" fill="currentColor"/></svg>
@@ -593,6 +664,26 @@ const s = {
   creditRow: { display:'flex', gap:10, alignItems:'baseline', padding:'3px 0' },
   creditRole: { fontSize:12, color:'var(--text3)', minWidth:110, flexShrink:0 },
   creditName: { fontSize:13, fontWeight:600, color:'var(--text)' },
+  // Full audio player ("Reproduciendo")
+  npTitleRow: { display:'flex', alignItems:'flex-start', gap:14, marginTop:6 },
+  npTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:26, lineHeight:1.02, letterSpacing:'-.01em' },
+  npArtist: { display:'block', color:'var(--accent2)', fontSize:15, fontWeight:600, marginTop:6 },
+  npHeart: { width:44, height:44, flexShrink:0, borderRadius:'50%', background:'var(--bg3)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' },
+  npSeekWrap: { padding:'10px 0 2px', cursor:'pointer', marginTop:18 },
+  npTrack: { position:'relative', height:5, borderRadius:3, background:'var(--bg4)' },
+  npBuf: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'var(--border)' },
+  npFill: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'linear-gradient(90deg,var(--accent),var(--accent2))' },
+  npKnob: { position:'absolute', top:'50%', width:14, height:14, borderRadius:'50%', background:'#fff', transform:'translate(-50%,-50%)', boxShadow:'0 2px 6px rgba(0,0,0,.5)' },
+  npTimes: { display:'flex', justifyContent:'space-between', fontSize:11.5, color:'var(--text3)', fontVariantNumeric:'tabular-nums', marginTop:8 },
+  npTransport: { display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:16 },
+  npSec: { background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:46, height:46 },
+  npSkip: { background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text)' },
+  npPlay: { width:72, height:72, borderRadius:'50%', background:'var(--accent)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', border:'none', cursor:'pointer', boxShadow:'0 12px 30px -8px rgba(236,28,43,.7)' },
+  npVol: { display:'flex', alignItems:'center', gap:12, marginTop:18, color:'var(--text2)' },
+  npVolBtn: { background:'none', border:'none', cursor:'pointer', color:'var(--text2)', display:'flex' },
+  npVolSlider: { flex:1, accentColor:'var(--accent)', cursor:'pointer' },
+  npOpts: { display:'flex', alignItems:'flex-start', gap:6, marginTop:22, paddingTop:18, borderTop:'1px solid var(--border)' },
+
   upNext: { marginTop:24 },
   upHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
   upTitle: { fontSize:14, fontWeight:700 },
