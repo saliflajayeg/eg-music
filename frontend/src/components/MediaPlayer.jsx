@@ -263,9 +263,11 @@ export default function MediaPlayer() {
   // modes so its parent never changes; only its rect animates.
   // The media slides up with the page. Its top follows the scroll and the part
   // that passes above the header line is clipped, so it tucks away like YouTube.
+  // The "full player" square cover is ONLY the phone audio view. On desktop,
+  // audio keeps the old Escenario layout (media + suggestions, two columns).
   const AUDIO_SQ = 'min(300px, 74vw)'
-  const audioExpanded = expanded && !isVideo
-  const baseTop = audioExpanded ? HEAD + 16 : (wide ? HEAD + 18 : HEAD)
+  const squareCover = expanded && !isVideo && !wide
+  const baseTop = squareCover ? HEAD + 16 : (wide ? HEAD + 18 : HEAD)
   baseTopRef.current = baseTop
   const frameTop = baseTop - scrollRef.current
   const clipCut = Math.max(0, HEAD - frameTop)
@@ -273,11 +275,11 @@ export default function MediaPlayer() {
 
   const frameStyle = !expanded
     ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':14), left:(isMobile?10:14), width:(isMobile?52:56), height:(isMobile?52:56), borderRadius:9, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
-    : isVideo
-      ? (wide
-          ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
-          : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip })
-      : { position:'fixed', top:frameTop, left:'50%', transform:'translateX(-50%)', width:AUDIO_SQ, height:AUDIO_SQ, borderRadius:22, overflow:'hidden', background:'var(--bg2)', zIndex:160, clipPath:clip, boxShadow:'0 30px 70px -22px rgba(236,28,43,.5)' }
+    : squareCover
+      ? { position:'fixed', top:frameTop, left:'50%', transform:'translateX(-50%)', width:AUDIO_SQ, height:AUDIO_SQ, borderRadius:22, overflow:'hidden', background:'var(--bg2)', zIndex:160, clipPath:clip, boxShadow:'0 30px 70px -22px rgba(236,28,43,.5)' }
+      : wide
+        ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
+        : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
 
   // Move the media with the scroll directly (no re-render) for a smooth slide.
   function onPaneScroll(e) {
@@ -293,7 +295,7 @@ export default function MediaPlayer() {
   // YouTube-style controls painted ON the frame (auto-hiding) — for BOTH audio
   // (over its cover) and video, so a song looks and works exactly like a video.
   // Quality/PiP/fullscreen are video-only. The mini bar keeps its own chrome.
-  const frameControls = isVideo && expanded && (
+  const frameControls = expanded && !squareCover && (
     <>
       {!isPlaying && (
         <button onClick={e => { e.stopPropagation(); _apiRef.current.toggle?.() }} style={s.ovCenter} aria-label="Reproducir">
@@ -550,7 +552,7 @@ export default function MediaPlayer() {
         <button onClick={close} style={s.fsIcon} title="Cerrar">✕</button>
       </div>
 
-      {!isVideo ? (
+      {squareCover ? (
         <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsBody, top: HEAD, maxWidth:480, paddingTop:`calc(${AUDIO_SQ} + 34px)` }}>
           {nowPlaying}
           {upNextBlock}
