@@ -883,6 +883,11 @@ def admin_stats(user=Depends(require_admin)):
 def admin_users(user=Depends(require_admin)):
     return db.get_all_users()
 
+@app.get("/api/admin/tracks")
+def admin_tracks(user=Depends(require_admin)):
+    """All songs & videos, for the admin management/delete list."""
+    return db.admin_all_tracks()
+
 @app.get("/api/admin/earnings")
 def admin_earnings(user=Depends(require_admin)):
     """Per-artist listening credited by each track's split, so collaborations

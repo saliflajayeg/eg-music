@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  adminStats, adminUsers, adminUpdateUser,
+  adminStats, adminUsers, adminUpdateUser, adminTracks, deleteTrack, trackCoverUrl,
   adminSubs, adminReviewSub, adminReceiptUrl,
   adminGetSettings, adminSaveSettings, adminEarnings,
 } from '../api'
@@ -12,6 +12,10 @@ export default function Admin() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('subs')
   const [stats, setStats] = useState(null)
+  const [userFilter, setUserFilter] = useState('all')   // plan filter for the Users tab
+
+  // A stat card jumps to the matching section (and filters users by plan).
+  const go = (t, filter) => { if (filter) setUserFilter(filter); setTab(t) }
 
   useEffect(() => {
     if (!user?.is_admin) { navigate('/'); return }
@@ -26,27 +30,30 @@ export default function Admin() {
 
       {stats && (
         <div style={s.statsRow}>
-          {[['Usuarios',stats.users,'var(--accent)'],['Canciones',stats.tracks,'var(--accent)'],
-            ['Reproducciones',stats.plays,'var(--accent)'],['Amante',stats.amante_users,'#8b5cf6'],
-            ['Pro',stats.pro_users,'var(--blue)'],['Premium',stats.premium_users,'var(--gold)'],
-            ['Pendientes',stats.pending_subscriptions,'var(--danger)']].map(([l,v,c]) => (
-            <div key={l} style={s.statCard}>
+          {[['Usuarios',stats.users,'var(--accent)',()=>go('users','all')],
+            ['Canciones',stats.tracks,'var(--accent)',()=>go('songs')],
+            ['Reproducciones',stats.plays,'var(--accent)',()=>go('songs')],
+            ['Amante',stats.amante_users,'#8b5cf6',()=>go('users','amante')],
+            ['Pro',stats.pro_users,'var(--blue)',()=>go('users','pro')],
+            ['Premium',stats.premium_users,'var(--gold)',()=>go('users','premium')],
+            ['Pendientes',stats.pending_subscriptions,'var(--danger)',()=>go('subs')]].map(([l,v,c,onClick]) => (
+            <button key={l} onClick={onClick} style={s.statCard}>
               <div style={{fontSize:26,fontWeight:800,color:c}}>{v}</div>
-              <div style={{fontSize:12,color:'var(--text3)'}}>{l}</div>
-            </div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>{l} ›</div>
+            </button>
           ))}
         </div>
       )}
 
       <div style={s.tabs}>
-        {['subs','users','earnings','settings'].map(t => (
+        {['subs','users','songs','earnings','settings'].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,
             background:tab===t?'var(--accent)':'var(--bg3)',
             color:tab===t?'#fff':'var(--text2)',
             border:'1px solid var(--border)',cursor:'pointer',
           }}>
-            {t==='subs'?'Suscripciones':t==='users'?'Usuarios':t==='earnings'?'Reparto':'Configuración'}
+            {t==='subs'?'Suscripciones':t==='users'?'Usuarios':t==='songs'?'Canciones':t==='earnings'?'Reparto':'Configuración'}
             {t==='subs' && stats?.pending_subscriptions > 0 && (
               <span style={s.badge}>{stats.pending_subscriptions}</span>
             )}
@@ -55,7 +62,8 @@ export default function Admin() {
       </div>
 
       {tab === 'subs'     && <SubsPanel onRefresh={() => adminStats().then(setStats)} />}
-      {tab === 'users'    && <UsersPanel />}
+      {tab === 'users'    && <UsersPanel filter={userFilter} setFilter={setUserFilter} />}
+      {tab === 'songs'    && <SongsPanel onChange={() => adminStats().then(setStats)} />}
       {tab === 'earnings' && <EarningsPanel />}
       {tab === 'settings' && <SettingsPanel />}
     </div>
@@ -168,11 +176,13 @@ function ReceiptViewer({ reqId }) {
 const PLANS = ['free', 'amante', 'pro', 'premium']
 const PLAN_BADGE = { amante: 'badge-plan-amante', pro: 'badge-plan-pro', premium: 'badge-plan-premium' }
 
-function UsersPanel() {
+function UsersPanel({ filter = 'all', setFilter }) {
   const [users, setUsers] = useState([])
   const { user: me } = useAuth()
 
   useEffect(() => { adminUsers().then(setUsers).catch(() => {}) }, [])
+
+  const shown = filter === 'all' ? users : users.filter(u => (u.plan || 'free') === filter)
 
   async function setPlan(uid, plan) {
     await adminUpdateUser(uid, { plan })
@@ -186,8 +196,19 @@ function UsersPanel() {
 
   return (
     <div style={{marginTop:20}}>
+      <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
+        {['all', ...PLANS].map(p => (
+          <button key={p} onClick={() => setFilter?.(p)} style={{
+            fontSize:12,fontWeight:600,padding:'6px 13px',borderRadius:16,cursor:'pointer',
+            background: filter===p ? 'var(--accent)' : 'var(--bg3)',
+            color: filter===p ? '#fff' : 'var(--text2)',
+            border:'1px solid var(--border)',textTransform:'capitalize',
+          }}>{p==='all'?'Todos':p}</button>
+        ))}
+        <span style={{fontSize:12,color:'var(--text3)',marginLeft:'auto'}}>{shown.length} usuario{shown.length===1?'':'s'}</span>
+      </div>
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        {users.map(u => (
+        {shown.map(u => (
           <div key={u.id} style={s.userRow}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -221,6 +242,66 @@ function UsersPanel() {
             )}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function SongsPanel({ onChange }) {
+  const [tracks, setTracks] = useState(null)
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(null)
+
+  useEffect(() => { adminTracks().then(setTracks).catch(() => setTracks([])) }, [])
+
+  async function remove(t) {
+    if (!confirm(`¿Eliminar "${t.title}"? Esta acción no se puede deshacer.`)) return
+    setBusy(t.id)
+    try {
+      await deleteTrack(t.id)
+      setTracks(ts => ts.filter(x => x.id !== t.id))
+      onChange?.()
+    } catch (e) { alert(e.message || 'No se pudo eliminar') }
+    finally { setBusy(null) }
+  }
+
+  if (tracks === null) return <p style={{color:'var(--text3)',marginTop:20}}>Cargando…</p>
+
+  const ql = q.trim().toLowerCase()
+  const shown = ql
+    ? tracks.filter(t => (t.title + ' ' + (t.display_name||t.username||t.artist||'')).toLowerCase().includes(ql))
+    : tracks
+
+  return (
+    <div style={{marginTop:20}}>
+      <div style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
+        <input className="input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar canción o artista…" style={{maxWidth:320}} />
+        <span style={{fontSize:12,color:'var(--text3)'}}>{shown.length} de {tracks.length}</span>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {shown.map(t => (
+          <div key={t.id} style={s.userRow}>
+            <img src={trackCoverUrl(t.id)} alt="" onError={e=>{e.target.style.visibility='hidden'}}
+                 style={{width:46,height:46,borderRadius:8,objectFit:'cover',flexShrink:0,background:'var(--bg3)'}} />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                <div style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</div>
+                <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:10,background:'var(--bg3)',color:'var(--text2)'}}>
+                  {t.media_type === 'video' ? '🎬 Vídeo' : '🎵 Audio'}
+                </span>
+                {!t.is_public && <span className="badge-admin">OCULTA</span>}
+              </div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>
+                {(t.display_name || t.username)} · {t.play_count} reproducciones · {t.created_at?.slice(0,10)}
+              </div>
+            </div>
+            <button disabled={busy===t.id} onClick={() => remove(t)} style={{
+              flexShrink:0,fontSize:12,fontWeight:700,padding:'8px 14px',borderRadius:8,cursor:'pointer',
+              background:'transparent',color:'var(--danger)',border:'1px solid var(--danger)',
+            }}>{busy===t.id ? '…' : '🗑 Eliminar'}</button>
+          </div>
+        ))}
+        {shown.length === 0 && <p style={{color:'var(--text3)'}}>Sin resultados.</p>}
       </div>
     </div>
   )
@@ -354,7 +435,7 @@ function ToggleBtn({ active, label, onClick, danger }) {
 
 const s = {
   statsRow: {display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'},
-  statCard: {flex:1,minWidth:120,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px'},
+  statCard: {flex:1,minWidth:120,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',cursor:'pointer',textAlign:'left',font:'inherit',transition:'border-color .15s,background .15s'},
   tabs: {display:'flex',gap:8,marginBottom:4},
   badge: {
     background:'var(--danger)',color:'#fff',borderRadius:'50%',

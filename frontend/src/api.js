@@ -134,6 +134,7 @@ export const requestSub       = fd  => postForm('/subscription/request', fd)
 // Admin
 export const adminStats        = ()           => get('/admin/stats')
 export const adminUsers        = ()           => get('/admin/users')
+export const adminTracks       = ()           => get('/admin/tracks')
 export const adminUpdateUser   = (id, body)   => patch(`/admin/users/${id}`, body)
 export const adminSubs         = (status='')  => get(`/admin/subscriptions?status=${status}`)
 export const adminReviewSub    = (id, body)   => post(`/admin/subscriptions/${id}/review`, body)

@@ -444,6 +444,17 @@ class Database:
         self.conn.execute(f'UPDATE users SET {sets} WHERE id=?', (*fields.values(), uid))
         self.conn.commit()
 
+    def admin_all_tracks(self):
+        """Every track (incl. private/scheduled) for the admin management list."""
+        rows = self.conn.execute('''
+            SELECT t.id, t.title, t.artist, t.media_type, t.play_count, t.cover,
+                   t.is_public, t.created_at, t.user_id,
+                   u.username, u.display_name
+            FROM tracks t JOIN users u ON t.user_id = u.id
+            ORDER BY t.created_at DESC
+        ''').fetchall()
+        return [dict(r) for r in rows]
+
     def update_password(self, uid, password_hash):
         self.conn.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash, uid))
         self.conn.commit()
