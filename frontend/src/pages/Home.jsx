@@ -106,20 +106,57 @@ function CategoryTabs() {
   )
 }
 
+const HERO_SLIDES = [
+  { eye:'NUEVOS SONIDOS', eyeColor:'var(--accent2)', a:'Sonido', b:'Nacional', bColor:'var(--accent)',
+    body:'Descubre. Escucha. Comparte.', btn:'Explorar ahora →', btnBg:'var(--accent)', btnColor:'#fff',
+    to:'/explore', glow:'rgba(236,28,43,.5)', bg:'linear-gradient(115deg,#2a0c10,#120708 62%)', big:true },
+  { eye:'QUÉ ES EG MUSIC', eyeColor:'#6aa6f5', a:'Más que', b:'música', bColor:'var(--accent)',
+    kinds:['🎵 Audio','🎬 Vídeo'],
+    body:'La plataforma musical de Guinea Ecuatorial para cantantes y músicos. Sube tu audio y tus vídeos y comparte tu talento con todo el país.',
+    btn:'Únete gratis →', btnBg:'var(--accent)', btnColor:'#fff', to:'/register',
+    glow:'rgba(47,127,224,.4)', bg:'linear-gradient(120deg,#12080a,#1a1210)' },
+  { eye:'PARA ARTISTAS', eyeColor:'var(--gold)', a:'Gana con', b:'tus streams', bColor:'var(--gold)',
+    body:'Cada reproducción cuenta. Los artistas generan ingresos con sus canciones y vídeos en EG Music.',
+    btn:'Sube tu música →', btnBg:'var(--gold)', btnColor:'#3a2b00', to:'/upload',
+    glow:'rgba(242,183,5,.4)', bg:'linear-gradient(120deg,#2a1c05,#170f08 60%)' },
+]
+
 function Hero() {
   const navigate = useNavigate()
+  const [i, setI] = useState(0)
+  const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Auto-advance every 5s (paused when the tab is hidden or reduced motion).
+  useEffect(() => {
+    if (reduce) return
+    const t = setInterval(() => setI(k => (k + 1) % HERO_SLIDES.length), 5000)
+    return () => clearInterval(t)
+  }, [reduce])
+
   return (
-    <div style={s.hero} onClick={() => navigate('/explore')}>
-      <div style={s.heroGlow} />
-      <div style={s.heroContent}>
-        <div style={s.heroEyebrow}>NUEVOS SONIDOS</div>
-        <h2 style={s.heroTitle}>SONIDO<br/><span style={{ color:'var(--accent)' }}>NACIONAL</span></h2>
-        <div style={s.heroSub}>Descubre. Escucha. Comparte.</div>
-        <button style={s.heroBtn} onClick={e => { e.stopPropagation(); navigate('/explore') }}>
-          Explorar ahora →
-        </button>
+    <div style={s.heroWrap}>
+      <div style={{ ...s.heroTrack, transform:`translateX(-${i*100}%)`, transition: reduce ? 'none' : 'transform .7s cubic-bezier(.7,0,.2,1)' }}>
+        {HERO_SLIDES.map((sl, k) => (
+          <div key={k} style={{ ...s.heroSlide, background: sl.bg }} onClick={() => navigate(sl.to)}>
+            <div style={{ ...s.heroGlow, background:`radial-gradient(circle, ${sl.glow}, transparent 70%)` }} />
+            <div style={s.heroContent}>
+              <div style={{ ...s.heroEyebrow, color: sl.eyeColor }}>{sl.eye}</div>
+              <h2 style={{ ...s.heroTitle, fontSize: sl.big ? 'clamp(30px,8vw,46px)' : 'clamp(23px,6.4vw,36px)' }}>
+                {sl.a}<br/><span style={{ color: sl.bColor }}>{sl.b}</span>
+              </h2>
+              {sl.kinds && <div style={s.heroKinds}>{sl.kinds.map(x => <span key={x} style={s.heroKind}>{x}</span>)}</div>}
+              <div style={s.heroSub}>{sl.body}</div>
+              <button style={{ ...s.heroBtn, background: sl.btnBg, color: sl.btnColor }}
+                onClick={e => { e.stopPropagation(); navigate(sl.to) }}>{sl.btn}</button>
+            </div>
+          </div>
+        ))}
       </div>
-      <div style={s.dots}>{[0,1,2,3].map(i => <span key={i} style={{ ...s.dot, ...(i===0 ? s.dotOn : {}) }} />)}</div>
+      <div style={s.dots}>
+        {HERO_SLIDES.map((_, k) => (
+          <span key={k} onClick={() => setI(k)} style={{ ...s.dot, ...(k===i ? s.dotOn : {}), cursor:'pointer' }} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -200,20 +237,18 @@ const s = {
   },
   tabActive: { background:'var(--accent)', color:'#fff', border:'1px solid var(--accent)' },
 
-  hero: {
-    position:'relative', overflow:'hidden', cursor:'pointer',
-    borderRadius:18, padding:'26px 22px', marginBottom:26, minHeight:170,
-    background:'radial-gradient(120% 140% at 85% 20%, rgba(236,28,43,.55), transparent 55%), linear-gradient(120deg,#1a0a0d 0%,#0d0608 60%)',
-    border:'1px solid rgba(236,28,43,.35)',
-  },
-  heroGlow: { position:'absolute', right:-40, top:-40, width:220, height:220, borderRadius:'50%', background:'radial-gradient(circle, rgba(236,28,43,.35), transparent 70%)', pointerEvents:'none' },
-  heroContent: { position:'relative', zIndex:1, maxWidth:'70%' },
+  heroWrap: { position:'relative', overflow:'hidden', borderRadius:18, marginBottom:26, border:'1px solid rgba(236,28,43,.28)' },
+  heroTrack: { display:'flex', alignItems:'stretch' },
+  heroSlide: { minWidth:'100%', position:'relative', overflow:'hidden', cursor:'pointer', padding:'26px 22px 34px', display:'flex', flexDirection:'column', justifyContent:'center', minHeight:196 },
+  heroGlow: { position:'absolute', right:-40, top:-40, width:220, height:220, borderRadius:'50%', pointerEvents:'none' },
+  heroContent: { position:'relative', zIndex:1, maxWidth:'82%' },
   heroEyebrow: { color:'var(--accent)', fontSize:11, fontWeight:800, letterSpacing:'.18em' },
-  heroTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(30px,8vw,46px)', fontWeight:800, lineHeight:.92, letterSpacing:'-.02em', textTransform:'uppercase', margin:'10px 0 8px' },
-  heroSub: { color:'var(--text2)', fontSize:14, marginBottom:16 },
-  heroBtn: { background:'var(--accent)', color:'#fff', fontWeight:700, fontSize:14, border:'none', borderRadius:24, padding:'11px 20px', cursor:'pointer' },
-  heroScript: { position:'absolute', right:18, top:20, textAlign:'right', fontFamily:'Georgia, serif', fontStyle:'italic', fontSize:15, color:'#fff', opacity:.9, lineHeight:1.3, zIndex:1 },
-  dots: { position:'absolute', left:22, bottom:14, display:'flex', gap:6, zIndex:1 },
+  heroTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(30px,8vw,46px)', fontWeight:800, lineHeight:.92, letterSpacing:'-.02em', textTransform:'uppercase', margin:'10px 0 9px' },
+  heroKinds: { display:'flex', gap:8, marginBottom:12 },
+  heroKind: { fontSize:11, fontWeight:700, color:'var(--text)', background:'rgba(255,255,255,.08)', border:'1px solid var(--border)', padding:'5px 11px', borderRadius:20 },
+  heroSub: { color:'var(--text2)', fontSize:13.5, lineHeight:1.5, marginBottom:15 },
+  heroBtn: { alignSelf:'flex-start', fontWeight:700, fontSize:14, border:'none', borderRadius:24, padding:'11px 20px', cursor:'pointer' },
+  dots: { position:'absolute', left:22, bottom:14, display:'flex', gap:6, zIndex:2 },
   dot: { width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,.3)' },
   dotOn: { width:18, background:'var(--accent)' },
 
