@@ -22,6 +22,7 @@ import Collabs   from './pages/Collabs'
 import Downloads from './pages/Downloads'
 import Playlists      from './pages/Playlists'
 import PlaylistDetail from './pages/PlaylistDetail'
+import ClaimAccount   from './pages/ClaimAccount'
 
 export default function App() {
   // Push any offline plays to the server on startup and when back online.
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/downloads" element={<Downloads />} />
               <Route path="/playlists"     element={<Playlists />} />
               <Route path="/playlist/:id"  element={<PlaylistDetail />} />
+              <Route path="/reclamar"      element={<ClaimAccount />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>

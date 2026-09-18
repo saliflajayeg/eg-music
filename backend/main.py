@@ -746,6 +746,35 @@ def artists_search(q: str = '', user=Depends(require_user)):
         for r in rows if r['id'] != user['id']
     ][:8]
 
+
+# ── Account claim (an artist claiming a pre-created account) ─────────────────────
+class ClaimBody(BaseModel):
+    artist_user_id: int
+    email: str = ''
+    contact: str = ''
+    message: str = ''
+
+@app.get("/api/claim/artists")
+def claim_search_artists(q: str = ''):
+    """Public search of artist accounts (uploaders) so someone can claim theirs."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    return db.search_claimable_artists(q)
+
+@app.post("/api/claims", status_code=201)
+def create_claim(body: ClaimBody):
+    """Public: an artist requests to take over an existing account. Reviewed by admin."""
+    artist = db.get_user_by_id(body.artist_user_id)
+    if not artist:
+        raise HTTPException(404, "Artista no encontrado")
+    email = (body.email or '').strip()
+    contact = (body.contact or '').strip()
+    if not email and not contact:
+        raise HTTPException(400, "Deja un correo o un contacto para poder responderte")
+    db.create_account_claim(body.artist_user_id, email, contact, (body.message or '').strip()[:800])
+    return {"ok": True}
+
 @app.get("/api/collabs/pending")
 def collabs_pending(user=Depends(require_user)):
     """Collaboration invitations waiting for me to accept."""
@@ -932,6 +961,36 @@ def admin_review_sub(req_id: int, body: ReviewBody, user=Depends(require_admin))
     if body.status not in ('approved', 'rejected'):
         raise HTTPException(400, "Estado inválido")
     db.review_sub_request(req_id, user['id'], body.status, body.note)
+    return {"ok": True}
+
+@app.get("/api/admin/claims")
+def admin_claims(user=Depends(require_admin)):
+    return db.get_account_claims()
+
+class ClaimReviewBody(BaseModel):
+    action: str   # 'approve' | 'reject'
+
+@app.post("/api/admin/claims/{cid}/review")
+def admin_review_claim(cid: int, body: ClaimReviewBody, user=Depends(require_admin)):
+    c = db.get_account_claim(cid)
+    if not c:
+        raise HTTPException(404, "Reclamo no encontrado")
+    if body.action == 'approve':
+        # Grant the account: set a temp password (and the claimant's email, if
+        # free) so the admin can hand over access; the artist then changes both.
+        temp = uuid.uuid4().hex[:8]
+        db.update_password(c['artist_user_id'], hash_password(temp))
+        new_email = (c.get('email') or '').strip()
+        email_set = bool(new_email) and not db.get_user_by_email(new_email)
+        if email_set:
+            db.update_email(c['artist_user_id'], new_email)
+        db.review_account_claim(cid, user['id'], 'approved')
+        artist = db.get_user_by_id(c['artist_user_id'])
+        return {"ok": True, "temp_password": temp,
+                "username": artist['username'],
+                "email": (new_email if email_set else artist.get('email', '')),
+                "email_set": email_set}
+    db.review_account_claim(cid, user['id'], 'rejected')
     return {"ok": True}
 
 @app.get("/api/admin/settings")

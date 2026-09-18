@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS subscription_requests (
     created_at TEXT DEFAULT {_PG_NOW},
     reviewed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS account_claims (
+    id SERIAL PRIMARY KEY,
+    artist_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT DEFAULT '',
+    contact TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    reviewed_by INTEGER,
+    created_at TEXT DEFAULT {_PG_NOW},
+    reviewed_at TEXT
+);
 CREATE TABLE IF NOT EXISTS play_events (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -234,6 +245,19 @@ class Database:
                 created_at TEXT DEFAULT (datetime('now')),
                 reviewed_at TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS account_claims (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                artist_user_id INTEGER NOT NULL,
+                email          TEXT DEFAULT '',
+                contact        TEXT DEFAULT '',
+                message        TEXT DEFAULT '',
+                status         TEXT DEFAULT 'pending',
+                reviewed_by    INTEGER,
+                created_at     TEXT DEFAULT (datetime('now')),
+                reviewed_at    TEXT,
+                FOREIGN KEY (artist_user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS play_events (
@@ -1102,6 +1126,48 @@ class Database:
             req = self.conn.execute('SELECT user_id, plan FROM subscription_requests WHERE id=?', (req_id,)).fetchone()
             if req:
                 self.conn.execute('UPDATE users SET plan=? WHERE id=?', (req['plan'], req['user_id']))
+        self.conn.commit()
+
+    # ── Account claims (an artist claiming a pre-created account) ────────────────
+    def search_claimable_artists(self, q):
+        """Artist accounts (users who have uploaded tracks) matching a name."""
+        like = f'%{q}%'
+        rows = self.conn.execute('''
+            SELECT u.id, u.username, u.display_name, u.avatar,
+                   (SELECT COUNT(*) FROM tracks t WHERE t.user_id=u.id) AS track_count
+            FROM users u
+            WHERE (u.username LIKE ? OR u.display_name LIKE ?)
+              AND EXISTS (SELECT 1 FROM tracks t WHERE t.user_id=u.id)
+            ORDER BY track_count DESC
+            LIMIT 8
+        ''', (like, like)).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_account_claim(self, artist_user_id, email, contact, message):
+        return self._insert_id(
+            'INSERT INTO account_claims (artist_user_id, email, contact, message) VALUES (?,?,?,?)',
+            (artist_user_id, email, contact, message)
+        )
+
+    def get_account_claim(self, cid):
+        r = self.conn.execute('SELECT * FROM account_claims WHERE id=?', (cid,)).fetchone()
+        return dict(r) if r else None
+
+    def get_account_claims(self, status=None):
+        q = '''
+            SELECT c.*, u.username, u.display_name, u.email AS current_email
+            FROM account_claims c JOIN users u ON c.artist_user_id=u.id
+        '''
+        if status:
+            q += f" WHERE c.status='{status}'"
+        q += ' ORDER BY c.created_at DESC'
+        return [dict(r) for r in self.conn.execute(q).fetchall()]
+
+    def review_account_claim(self, cid, admin_id, status):
+        self.conn.execute(
+            "UPDATE account_claims SET status=?, reviewed_by=?, reviewed_at=datetime('now') WHERE id=?",
+            (status, admin_id, cid)
+        )
         self.conn.commit()
 
     # ── Settings ──────────────────────────────────────────────────────────────

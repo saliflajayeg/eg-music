@@ -39,6 +39,7 @@ export default function Login() {
           </button>
         </form>
         <p style={s.link}>¿No tienes cuenta? <Link to="/register" style={{color:'var(--accent)'}}>Regístrate</Link></p>
+        <p style={s.link}>¿Eres artista y ya tienes música aquí? <Link to="/reclamar" style={{color:'var(--accent)'}}>Reclama tu cuenta</Link></p>
       </div>
     </div>
   )

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   adminStats, adminUsers, adminUpdateUser, adminTracks, deleteTrack, trackCoverUrl,
-  adminSubs, adminReviewSub, adminReceiptUrl,
+  adminSubs, adminReviewSub, adminReceiptUrl, adminClaims, adminReviewClaim,
   adminGetSettings, adminSaveSettings, adminEarnings,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -46,14 +46,14 @@ export default function Admin() {
       )}
 
       <div style={s.tabs}>
-        {['subs','users','songs','earnings','settings'].map(t => (
+        {['subs','claims','users','songs','earnings','settings'].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,
             background:tab===t?'var(--accent)':'var(--bg3)',
             color:tab===t?'#fff':'var(--text2)',
             border:'1px solid var(--border)',cursor:'pointer',
           }}>
-            {t==='subs'?'Suscripciones':t==='users'?'Usuarios':t==='songs'?'Canciones':t==='earnings'?'Reparto':'Configuración'}
+            {t==='subs'?'Suscripciones':t==='claims'?'Reclamos':t==='users'?'Usuarios':t==='songs'?'Canciones':t==='earnings'?'Reparto':'Configuración'}
             {t==='subs' && stats?.pending_subscriptions > 0 && (
               <span style={s.badge}>{stats.pending_subscriptions}</span>
             )}
@@ -62,6 +62,7 @@ export default function Admin() {
       </div>
 
       {tab === 'subs'     && <SubsPanel onRefresh={() => adminStats().then(setStats)} />}
+      {tab === 'claims'   && <ClaimsPanel />}
       {tab === 'users'    && <UsersPanel filter={userFilter} setFilter={setUserFilter} />}
       {tab === 'songs'    && <SongsPanel onChange={() => adminStats().then(setStats)} />}
       {tab === 'earnings' && <EarningsPanel />}
@@ -243,6 +244,63 @@ function UsersPanel({ filter = 'all', setFilter }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function ClaimsPanel() {
+  const [claims, setClaims] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [creds, setCreds] = useState({})   // claim id -> {username,email,temp_password}
+
+  useEffect(() => { adminClaims().then(setClaims).catch(() => setClaims([])) }, [])
+
+  async function review(c, action) {
+    if (action === 'approve' && !confirm(`¿Confirmas que "${c.display_name || c.username}" es de esta persona? Se generará acceso nuevo.`)) return
+    if (action === 'reject' && !confirm('¿Rechazar este reclamo?')) return
+    setBusy(c.id)
+    try {
+      const r = await adminReviewClaim(c.id, action)
+      if (action === 'approve') setCreds(cr => ({ ...cr, [c.id]: r }))
+      setClaims(cs => cs.map(x => x.id === c.id ? { ...x, status: action === 'approve' ? 'approved' : 'rejected' } : x))
+    } catch (e) { alert(e.message || 'Error') }
+    finally { setBusy(null) }
+  }
+
+  if (claims === null) return <p style={{color:'var(--text3)',marginTop:20}}>Cargando…</p>
+  if (claims.length === 0) return <p style={{color:'var(--text3)',marginTop:20}}>No hay reclamos de cuentas.</p>
+
+  return (
+    <div style={{marginTop:20, display:'flex', flexDirection:'column', gap:10}}>
+      {claims.map(c => (
+        <div key={c.id} style={{...s.userRow, flexDirection:'column', alignItems:'stretch', gap:10}}>
+          <div style={{display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontWeight:700}}>{c.display_name || c.username} <span style={{color:'var(--text3)',fontWeight:400,fontSize:12}}>@{c.username}</span></div>
+              <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>
+                {c.email && <>✉ {c.email} · </>}{c.contact && <>📞 {c.contact} · </>}{c.created_at?.slice(0,10)}
+              </div>
+              {c.message && <div style={{fontSize:12.5,color:'var(--text2)',marginTop:6,fontStyle:'italic'}}>“{c.message}”</div>}
+            </div>
+            {c.status === 'pending' ? (
+              <div style={{display:'flex',gap:8,flexShrink:0}}>
+                <button disabled={busy===c.id} onClick={()=>review(c,'approve')} style={s.approveBtn}>✓ Aprobar</button>
+                <button disabled={busy===c.id} onClick={()=>review(c,'reject')} style={s.rejectBtn}>Rechazar</button>
+              </div>
+            ) : (
+              <span className={c.status==='approved'?'badge-plan-premium':'badge-admin'} style={{flexShrink:0}}>{c.status==='approved'?'APROBADO':'RECHAZADO'}</span>
+            )}
+          </div>
+          {creds[c.id] && (
+            <div style={{background:'var(--bg3)',border:'1px solid var(--accent)',borderRadius:8,padding:'10px 12px',fontSize:13}}>
+              <div style={{fontWeight:700,marginBottom:4}}>Acceso para entregar al artista (por WhatsApp):</div>
+              Usuario: <b>{creds[c.id].username}</b>{creds[c.id].email && <> · Correo: <b>{creds[c.id].email}</b></>}<br/>
+              Contraseña temporal: <b style={{fontFamily:'monospace'}}>{creds[c.id].temp_password}</b>
+              <div style={{color:'var(--text3)',marginTop:4,fontSize:11}}>Dile que entre y cambie su contraseña en “Mi cuenta”.</div>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -436,6 +494,8 @@ function ToggleBtn({ active, label, onClick, danger }) {
 const s = {
   statsRow: {display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'},
   statCard: {flex:1,minWidth:120,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',cursor:'pointer',textAlign:'left',font:'inherit',transition:'border-color .15s,background .15s'},
+  approveBtn: {fontSize:12,fontWeight:700,padding:'8px 14px',borderRadius:8,cursor:'pointer',background:'var(--accent)',color:'#fff',border:'none'},
+  rejectBtn: {fontSize:12,fontWeight:700,padding:'8px 14px',borderRadius:8,cursor:'pointer',background:'transparent',color:'var(--text2)',border:'1px solid var(--border)'},
   tabs: {display:'flex',gap:8,marginBottom:4},
   badge: {
     background:'var(--danger)',color:'#fff',borderRadius:'50%',
