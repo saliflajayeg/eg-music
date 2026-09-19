@@ -70,6 +70,30 @@ export function MediaProvider({ children }) {
     })
   }, [])
 
+  // Jump straight to a position in the queue (clicking an item in the cola).
+  const jumpTo = useCallback((i) => setIndex(i), [])
+
+  // Remove a queued track. Keep the current track playing: adjust the index so
+  // it still points at the same song after the list shrinks.
+  const removeFromQueue = useCallback((id) => {
+    setQueue(q => {
+      const pos = q.findIndex(t => t.id === id)
+      if (pos < 0) return q
+      setIndex(idx => (pos < idx ? idx - 1 : idx))
+      return q.filter(t => t.id !== id)
+    })
+  }, [])
+
+  // Append a track and play it immediately (used for endless auto-play when the
+  // queue runs out, so the music never stops).
+  const appendAndPlay = useCallback((track) => {
+    setQueue(q => {
+      const pos = q.findIndex(t => t.id === track.id)
+      if (pos >= 0) { setIndex(pos); return q }
+      const nq = [...q, track]; setIndex(nq.length - 1); return nq
+    })
+  }, [])
+
   // Radio-style: cue a random song when the app opens. Browsers block autoplay
   // with sound until a gesture, so we start on the first interaction.
   useEffect(() => {
@@ -107,6 +131,7 @@ export function MediaProvider({ children }) {
   const value = {
     queue, index, current, isPlaying, expanded, shuffle, repeat,
     play, togglePlay, next, prev, seek, close, addToQueue,
+    jumpTo, removeFromQueue, appendAndPlay,
     toggleShuffle: () => setShuffle(s => !s),
     cycleRepeat: () => setRepeat(r => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')),
     // Open the full player as its own page; minimize returns to where you were

@@ -47,7 +47,8 @@ const fmtCount = n => {
 export default function MediaPlayer() {
   const media = useMedia()
   const { current, queue, index, isPlaying, expanded, shuffle, repeat,
-          next, prev, collapse, expand, close, toggleShuffle, cycleRepeat, _apiRef, _setIsPlaying } = media
+          next, prev, collapse, expand, close, toggleShuffle, cycleRepeat,
+          addToQueue, jumpTo, removeFromQueue, appendAndPlay, _apiRef, _setIsPlaying } = media
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -80,6 +81,25 @@ export default function MediaPlayer() {
   const paneRef   = useRef(null)
   const baseTopRef = useRef(0)  // top of the media frame before scroll (for scroll-sync)
   const [suggestions, setSuggestions] = useState([])   // similar tracks (same genre)
+  const [showQueue, setShowQueue] = useState(false)     // the "cola" sheet
+
+  // Live snapshot of the fast-changing bits so the (rebound-per-track) media
+  // event handlers always read fresh queue/index/suggestions without stale
+  // closures — used for endless play-through and preloading the next track.
+  const liveRef = useRef({})
+  liveRef.current = { queue, index, suggestions, shuffle, repeat }
+  const preloadRef = useRef(null)      // hidden <audio> that warms the next track
+  const preloadedIdRef = useRef(null)  // which track id we've already preloaded
+  const toppedRef = useRef(null)       // track id we've already auto-topped-up for
+
+  // Which track will play next, if it's predictable (not shuffle/repeat-one).
+  function resolveNext() {
+    const { queue: q, index: i, shuffle: sh, repeat: rp } = liveRef.current
+    if (rp === 'one' || sh) return null
+    if (i + 1 < q.length) return q[i + 1]
+    if (rp === 'all' && q.length) return q[(i + 1) % q.length]   // wrap to start
+    return null
+  }
 
   const countedRef = useRef(false)
   const lastIdRef  = useRef(null)
@@ -171,10 +191,38 @@ export default function MediaPlayer() {
         countedRef.current = true
         if (isLocal) isDownloaded(current.id).then(d => { if (d && !localPlayedRef.current) { localPlayedRef.current = true; queuePlay(current.id) } })
       }
+      // Endless play: as the song nears its end, make sure something is cued to
+      // start "underneath" it, and warm that next track so the switch is seamless.
+      const d = v.duration
+      if (d && d - v.currentTime < 20) {
+        const L = liveRef.current
+        let nx = resolveNext()
+        if (!nx && L.repeat === 'off' && !L.shuffle && toppedRef.current !== current.id) {
+          const rec = L.suggestions.find(t => t.media_type !== 'video' && !L.queue.some(q => q.id === t.id))
+          if (rec) { toppedRef.current = current.id; addToQueue(rec); nx = rec }
+        }
+        if (nx && nx.media_type !== 'video' && preloadedIdRef.current !== nx.id) {
+          preloadedIdRef.current = nx.id
+          try {
+            if (!preloadRef.current) { preloadRef.current = new Audio(); preloadRef.current.muted = true }
+            preloadRef.current.preload = 'auto'
+            preloadRef.current.src = trackStreamUrl(nx.id, { count: 0 })
+            preloadRef.current.load()
+          } catch {}
+        }
+      }
     }
     const onDur = () => setDur(isNaN(v.duration) ? 0 : v.duration)
     const onProg = () => { try { if (v.buffered.length) setBuf(v.buffered.end(v.buffered.length - 1)) } catch {} }
-    const onEnd = () => { if (repeat === 'one') { const x=videoRef.current; if (x) { x.currentTime = 0; x.play().catch(()=>{}) } } else next() }
+    const onEnd = () => {
+      if (repeat === 'one') { const x = videoRef.current; if (x) { x.currentTime = 0; x.play().catch(() => {}) } return }
+      const L = liveRef.current
+      const hasNext = L.shuffle ? L.queue.length > 1 : !!resolveNext()
+      if (hasNext) { next(); return }
+      // Queue exhausted → keep the music going with a recommendation.
+      const rec = L.suggestions.find(t => t.media_type !== 'video' && !L.queue.some(q => q.id === t.id)) || L.suggestions[0]
+      if (rec) appendAndPlay(rec); else next()
+    }
     const onWaiting = () => { if (isVideo && quality === 'auto' && sdReady && !usingSd) setStalls(s => s + 1) }
     const onVolume = () => { setVol(v.volume); setMuted(v.muted) }
     v.addEventListener('play', onPlay); v.addEventListener('pause', onPause)
@@ -409,6 +457,7 @@ export default function MediaPlayer() {
             <input type="range" min={0} max={1} step={0.02} value={muted?0:vol} onChange={e => setVolume(Number(e.target.value))} style={s.barVolSlider} aria-label="Volumen" />
           </span>
         )}
+        {!isMobile && <button onClick={() => setShowQueue(true)} style={s.barIcon} title="Cola de reproducción"><IcoQueueList /></button>}
         <button onClick={expand} style={s.barIcon} title="Abrir reproductor completo"><IcoSliders /></button>
         {!isMobile && <button onClick={close} style={s.barIcon} title="Cerrar">✕</button>}
       </div>
@@ -545,6 +594,7 @@ export default function MediaPlayer() {
 
       <div style={s.npOpts}>
         {isNative() && <NpOpt icon={<IcoDownloadLine/>} label={dl==='busy'?'…':dl==='done'?'Descargado':'Descargar'} active={dl==='done'} onClick={handleDownload} />}
+        <NpOpt icon={<IcoQueueList/>} label="Cola" onClick={() => setShowQueue(true)} />
         <div style={{ flex:1, display:'flex', justifyContent:'center' }}><AddToPlaylist trackId={current.id} /></div>
         <NpOpt icon={<IcoShare/>} label="Compartir" onClick={handleShare} />
         <NpOpt icon={<IcoComment/>} label="Comentar" onClick={scrollComments} />
@@ -552,10 +602,58 @@ export default function MediaPlayer() {
     </>
   )
 
+  // The "cola" (queue) sheet: what's playing now + everything lined up next,
+  // with an empty state that tells you how to add songs.
+  const upcoming = queue.map((t, i) => ({ t, i })).filter(x => x.i !== index)
+  const queuePanel = showQueue && (
+    <div style={s.qOverlay} onClick={() => setShowQueue(false)}>
+      <div style={s.qSheet} onClick={e => e.stopPropagation()}>
+        <div style={s.qHandle} />
+        <div style={s.qHead}>
+          <span style={{ display:'flex', color:'var(--accent)' }}><IcoQueueList /></span>
+          <span style={s.qHeadTitle}>Cola de reproducción</span>
+          <button onClick={() => setShowQueue(false)} style={s.qClose} title="Cerrar">✕</button>
+        </div>
+        <div className="eg-pane" style={s.qScroll}>
+          <div style={s.qLabel}>Reproduciendo ahora</div>
+          <div style={{ ...s.qRow, ...s.qRowActive, cursor:'default' }}>
+            <img src={trackCoverUrl(current.id)} alt="" style={s.qThumb} onError={e => { e.target.style.visibility='hidden' }} />
+            <div style={{ minWidth:0, flex:1 }}>
+              <div style={{ ...s.qRowTitle, color:'var(--accent2)' }}>{current.title}</div>
+              <div style={s.qRowArtist}>{artistName}</div>
+            </div>
+            <span style={{ fontSize:12, fontWeight:800, color:'var(--accent)', flexShrink:0 }}>{isPlaying ? '❚❚' : '▶'}</span>
+          </div>
+
+          <div style={s.qLabel}>A continuación</div>
+          {upcoming.length > 0 ? upcoming.map(({ t, i }) => (
+            <div key={`${t.id}-${i}`} style={s.qRow}>
+              <button onClick={() => jumpTo(i)} style={s.qRowBtn}>
+                <img src={trackCoverUrl(t.id)} alt="" style={s.qThumb} onError={e => { e.target.style.visibility='hidden' }} />
+                <div style={{ minWidth:0, flex:1 }}>
+                  <div style={s.qRowTitle}>{t.title}</div>
+                  <div style={s.qRowArtist}>{(t.display_name || t.username)} · {t.media_type==='video' ? 'video' : 'canción'}</div>
+                </div>
+              </button>
+              <button onClick={() => removeFromQueue(t.id)} style={s.qDel} title="Quitar de la cola">✕</button>
+            </div>
+          )) : (
+            <div style={s.qEmpty}>
+              <span style={s.qEmptyIcon}><IcoQueueList big /></span>
+              <div style={s.qEmptyTitle}>No hay música en la cola</div>
+              <div style={s.qEmptyText}>Pulsa <b>«Añadir a la cola»</b> <span style={{ verticalAlign:'middle', display:'inline-flex' }}><IcoQueueList /></span> en cualquier canción para ponerla aquí y sonará a continuación.</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
   // Single return: the media surface is ALWAYS the first child so the <video>
   // never remounts (everything is position:fixed, so DOM order ≠ visual order).
   return (
     <>
+      {queuePanel}
       {mediaSurface}
       {!expanded ? barChrome : (
       <>
@@ -566,6 +664,7 @@ export default function MediaPlayer() {
           <IcoChevronDown />{!isMobile && <span>Minimizar</span>}
         </button>
         <span style={s.fsHeaderTitle}>{current.title}</span>
+        <button onClick={() => setShowQueue(true)} style={s.fsIcon} title="Cola de reproducción"><IcoQueueList /></button>
         <button onClick={close} style={s.fsIcon} title="Cerrar">✕</button>
       </div>
 
@@ -619,6 +718,7 @@ const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fil
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
 const IcoSliders = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+const IcoQueueList = ({big}) => <svg width={big?36:20} height={big?36:20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h11M4 12h11M4 17h7"/><path d="M15 13l6 3.5-6 3.5z" fill="currentColor" stroke="none"/></svg>
 const IcoHeart = ({filled}) => filled
   ? <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.3-10.5-11C.3 6.7 2.3 4 5.5 4 7.6 4 9 5.4 12 8c3-2.6 4.4-4 6.5-4 3.2 0 5.2 2.7 4 6C20.5 15.7 12 21 12 21z"/></svg>
   : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s-8.5-5.3-10.5-11C.3 6.7 2.3 4 5.5 4 7.6 4 9 5.4 12 8c3-2.6 4.4-4 6.5-4 3.2 0 5.2 2.7 4 6C20.5 15.7 12 21 12 21z"/></svg>
@@ -714,6 +814,27 @@ const s = {
   upRowTitle: { fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   upRowArtist: { fontSize:12, color:'var(--text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   upEmpty: { fontSize:13, color:'var(--text3)' },
+
+  // "Cola" (queue) bottom sheet.
+  qOverlay: { position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,.55)', display:'flex', justifyContent:'center', alignItems:'flex-end' },
+  qSheet: { width:'100%', maxWidth:520, maxHeight:'80vh', background:'var(--bg2)', borderTopLeftRadius:20, borderTopRightRadius:20, borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', boxShadow:'0 -24px 70px -20px rgba(0,0,0,.75)' },
+  qHandle: { width:40, height:4, borderRadius:3, background:'var(--bg4)', margin:'9px auto 2px' },
+  qHead: { display:'flex', alignItems:'center', gap:10, padding:'8px 16px 10px' },
+  qHeadTitle: { flex:1, fontFamily:'var(--font-display)', fontWeight:800, fontSize:17 },
+  qClose: { background:'none', border:'none', color:'var(--text2)', cursor:'pointer', fontSize:16, display:'flex', padding:4 },
+  qScroll: { overflowY:'auto', padding:'0 10px 18px' },
+  qLabel: { fontSize:11, fontWeight:700, letterSpacing:.7, textTransform:'uppercase', color:'var(--text3)', padding:'12px 6px 6px' },
+  qRow: { display:'flex', alignItems:'center', gap:10, padding:'6px 6px', borderRadius:10 },
+  qRowActive: { background:'var(--bg3)' },
+  qRowBtn: { display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0, background:'none', border:'none', cursor:'pointer', color:'var(--text)', textAlign:'left', padding:0 },
+  qThumb: { width:46, height:46, borderRadius:8, objectFit:'cover', flexShrink:0, background:'var(--bg3)' },
+  qRowTitle: { fontSize:13.5, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  qRowArtist: { fontSize:12, color:'var(--text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 },
+  qDel: { background:'none', border:'none', color:'var(--text3)', cursor:'pointer', padding:8, flexShrink:0, fontSize:14 },
+  qEmpty: { textAlign:'center', padding:'22px 24px 30px', color:'var(--text3)' },
+  qEmptyIcon: { display:'inline-flex', color:'var(--text3)', opacity:.7, marginBottom:10 },
+  qEmptyTitle: { fontSize:15, fontWeight:700, color:'var(--text2)', marginBottom:7 },
+  qEmptyText: { fontSize:13, lineHeight:1.55 },
 
   // Video overlay controls (painted on the frame, auto-hiding).
   ovCenter: { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:4, width:64, height:64, borderRadius:'50%', background:'rgba(0,0,0,.5)', color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', paddingLeft:4 },
