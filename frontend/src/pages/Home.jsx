@@ -114,6 +114,7 @@ const HERO_SLIDES = [
 
 function Hero() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [i, setI] = useState(0)
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -124,12 +125,18 @@ function Hero() {
     return () => clearInterval(t)
   }, [reduce])
 
+  // Wide banners: cap the width on desktop so they stay compact; on phones,
+  // crop toward the left (logo + headline + button) so the text reads big.
+  const imgStyle = isMobile
+    ? { ...s.heroImg, height:215, objectFit:'cover', objectPosition:'left center' }
+    : s.heroImg
+
   return (
-    <div style={s.heroWrap}>
+    <div style={{ ...s.heroWrap, ...(isMobile ? {} : { maxWidth:900, marginLeft:'auto', marginRight:'auto' }) }}>
       <div style={{ ...s.heroTrack, transform:`translateX(-${i*100}%)`, transition: reduce ? 'none' : 'transform .7s cubic-bezier(.7,0,.2,1)' }}>
         {HERO_SLIDES.map((sl, k) => (
           <button key={k} onClick={() => navigate(sl.to)} style={s.heroSlide} aria-label={sl.alt}>
-            <img src={sl.img} alt={sl.alt} style={s.heroImg} draggable="false" />
+            <img src={sl.img} alt={sl.alt} style={imgStyle} draggable="false" />
           </button>
         ))}
       </div>
