@@ -107,18 +107,9 @@ function CategoryTabs() {
 }
 
 const HERO_SLIDES = [
-  { eye:'NUEVOS SONIDOS', eyeColor:'var(--accent2)', a:'Sonido', b:'Nacional', bColor:'var(--accent)',
-    body:'Descubre. Escucha. Comparte.', btn:'Explorar ahora →', btnBg:'var(--accent)', btnColor:'#fff',
-    to:'/explore', glow:'rgba(236,28,43,.5)', bg:'linear-gradient(115deg,#2a0c10,#120708 62%)', big:true },
-  { eye:'QUÉ ES EG MUSIC', eyeColor:'#6aa6f5', a:'Más que', b:'música', bColor:'var(--accent)',
-    kinds:['🎵 Audio','🎬 Vídeo'],
-    body:'La plataforma musical de Guinea Ecuatorial para cantantes y músicos. Sube tu audio y tus vídeos y comparte tu talento con todo el país.',
-    btn:'Únete gratis →', btnBg:'var(--accent)', btnColor:'#fff', to:'/register',
-    glow:'rgba(47,127,224,.4)', bg:'linear-gradient(120deg,#12080a,#1a1210)' },
-  { eye:'PARA ARTISTAS', eyeColor:'var(--gold)', a:'Gana con', b:'tus streams', bColor:'var(--gold)',
-    body:'Cada reproducción cuenta. Los artistas generan ingresos con sus canciones y vídeos en EG Music.',
-    btn:'Sube tu música →', btnBg:'var(--gold)', btnColor:'#3a2b00', to:'/upload',
-    glow:'rgba(242,183,5,.4)', bg:'linear-gradient(120deg,#2a1c05,#170f08 60%)' },
+  { img:'/hero/1.jpg', to:'/register', alt:'EG Music — Más que música. Únete gratis.' },
+  { img:'/hero/2.jpg', to:'/explore',  alt:'Tu música sin límites. Explora ahora.' },
+  { img:'/hero/3.jpg', to:'/upload',   alt:'Gana con tus streams. Sube tu música.' },
 ]
 
 function Hero() {
@@ -126,7 +117,7 @@ function Hero() {
   const [i, setI] = useState(0)
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-  // Auto-advance every 5s (paused when the tab is hidden or reduced motion).
+  // Auto-advance every 5s (paused when reduced motion is on).
   useEffect(() => {
     if (reduce) return
     const t = setInterval(() => setI(k => (k + 1) % HERO_SLIDES.length), 5000)
@@ -137,19 +128,9 @@ function Hero() {
     <div style={s.heroWrap}>
       <div style={{ ...s.heroTrack, transform:`translateX(-${i*100}%)`, transition: reduce ? 'none' : 'transform .7s cubic-bezier(.7,0,.2,1)' }}>
         {HERO_SLIDES.map((sl, k) => (
-          <div key={k} style={{ ...s.heroSlide, background: sl.bg }} onClick={() => navigate(sl.to)}>
-            <div style={{ ...s.heroGlow, background:`radial-gradient(circle, ${sl.glow}, transparent 70%)` }} />
-            <div style={s.heroContent}>
-              <div style={{ ...s.heroEyebrow, color: sl.eyeColor }}>{sl.eye}</div>
-              <h2 style={{ ...s.heroTitle, fontSize: sl.big ? 'clamp(30px,8vw,46px)' : 'clamp(23px,6.4vw,36px)' }}>
-                {sl.a}<br/><span style={{ color: sl.bColor }}>{sl.b}</span>
-              </h2>
-              {sl.kinds && <div style={s.heroKinds}>{sl.kinds.map(x => <span key={x} style={s.heroKind}>{x}</span>)}</div>}
-              <div style={s.heroSub}>{sl.body}</div>
-              <button style={{ ...s.heroBtn, background: sl.btnBg, color: sl.btnColor }}
-                onClick={e => { e.stopPropagation(); navigate(sl.to) }}>{sl.btn}</button>
-            </div>
-          </div>
+          <button key={k} onClick={() => navigate(sl.to)} style={s.heroSlide} aria-label={sl.alt}>
+            <img src={sl.img} alt={sl.alt} style={s.heroImg} draggable="false" />
+          </button>
         ))}
       </div>
       <div style={s.dots}>
@@ -237,18 +218,11 @@ const s = {
   },
   tabActive: { background:'var(--accent)', color:'#fff', border:'1px solid var(--accent)' },
 
-  heroWrap: { position:'relative', overflow:'hidden', borderRadius:18, marginBottom:26, border:'1px solid rgba(236,28,43,.28)' },
+  heroWrap: { position:'relative', overflow:'hidden', borderRadius:18, marginBottom:26, background:'#0d0708' },
   heroTrack: { display:'flex', alignItems:'stretch' },
-  heroSlide: { minWidth:'100%', position:'relative', overflow:'hidden', cursor:'pointer', padding:'26px 22px 34px', display:'flex', flexDirection:'column', justifyContent:'center', minHeight:196 },
-  heroGlow: { position:'absolute', right:-40, top:-40, width:220, height:220, borderRadius:'50%', pointerEvents:'none' },
-  heroContent: { position:'relative', zIndex:1, maxWidth:'82%' },
-  heroEyebrow: { color:'var(--accent)', fontSize:11, fontWeight:800, letterSpacing:'.18em' },
-  heroTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(30px,8vw,46px)', fontWeight:800, lineHeight:.92, letterSpacing:'-.02em', textTransform:'uppercase', margin:'10px 0 9px' },
-  heroKinds: { display:'flex', gap:8, marginBottom:12 },
-  heroKind: { fontSize:11, fontWeight:700, color:'var(--text)', background:'rgba(255,255,255,.08)', border:'1px solid var(--border)', padding:'5px 11px', borderRadius:20 },
-  heroSub: { color:'var(--text2)', fontSize:13.5, lineHeight:1.5, marginBottom:15 },
-  heroBtn: { alignSelf:'flex-start', fontWeight:700, fontSize:14, border:'none', borderRadius:24, padding:'11px 20px', cursor:'pointer' },
-  dots: { position:'absolute', left:22, bottom:14, display:'flex', gap:6, zIndex:2 },
+  heroSlide: { minWidth:'100%', padding:0, border:'none', background:'none', cursor:'pointer', display:'block', lineHeight:0 },
+  heroImg: { width:'100%', height:'auto', display:'block', userSelect:'none' },
+  dots: { position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:10, display:'flex', gap:6, zIndex:2, background:'rgba(0,0,0,.35)', padding:'6px 10px', borderRadius:14, backdropFilter:'blur(4px)' },
   dot: { width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,.3)' },
   dotOn: { width:18, background:'var(--accent)' },
 
