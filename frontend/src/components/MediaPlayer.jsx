@@ -82,15 +82,70 @@ export default function MediaPlayer() {
   const baseTopRef = useRef(0)  // top of the media frame before scroll (for scroll-sync)
   const [suggestions, setSuggestions] = useState([])   // similar tracks (same genre)
   const [showQueue, setShowQueue] = useState(false)     // the "cola" sheet
+  // Crossfade length in seconds (0 = off). Persisted per device.
+  const [crossfade, setCrossfadeState] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('eg_crossfade') ?? '6', 10); return isNaN(v) ? 6 : Math.max(0, Math.min(12, v)) } catch { return 6 }
+  })
+  const setCrossfade = (n) => { setCrossfadeState(n); try { localStorage.setItem('eg_crossfade', String(n)) } catch {} }
 
   // Live snapshot of the fast-changing bits so the (rebound-per-track) media
   // event handlers always read fresh queue/index/suggestions without stale
-  // closures — used for endless play-through and preloading the next track.
+  // closures — used for endless play-through, preloading and the crossfade.
   const liveRef = useRef({})
-  liveRef.current = { queue, index, suggestions, shuffle, repeat }
+  liveRef.current = { queue, index, suggestions, shuffle, repeat, crossfade, isVideo, vol, muted, isLocal, src }
   const preloadRef = useRef(null)      // hidden <audio> that warms the next track
   const preloadedIdRef = useRef(null)  // which track id we've already preloaded
   const toppedRef = useRef(null)       // track id we've already auto-topped-up for
+  const deckRef = useRef(null)         // second <audio> that plays the outgoing tail
+  const xfadeRef = useRef({ active: false, iv: null })
+  const fadeInRef = useRef(false)      // the main element should start silent and fade in
+
+  // Crossfade: the outgoing song's tail keeps playing on a second deck and fades
+  // out, while the main element advances to the next song and fades in — so the
+  // next track literally starts "underneath" the current one.
+  function startCrossfade() {
+    const v = videoRef.current, deck = deckRef.current
+    if (!v || !deck || xfadeRef.current.active) return
+    const L = liveRef.current
+    const secs = L.crossfade
+    const target = L.muted ? 0 : L.vol
+    const curVol = v.volume
+    const startAt = v.currentTime
+    xfadeRef.current.active = true
+    try {
+      // count=0 => the stream endpoint redirects to the same (already cached) R2
+      // file without counting another view; local plays reuse the blob directly.
+      deck.src = L.isLocal ? L.src : trackStreamUrl(current.id, { count: 0 })
+      deck.muted = v.muted
+      deck.volume = curVol
+      const go = () => { try { deck.currentTime = startAt } catch {}; deck.play().catch(() => {}) }
+      if (deck.readyState >= 1) go()
+      else deck.addEventListener('loadedmetadata', go, { once: true })
+    } catch {}
+    fadeInRef.current = true
+    next()                               // main element loads the next track (starts silent)
+    const start = performance.now()
+    clearInterval(xfadeRef.current.iv)
+    xfadeRef.current.iv = setInterval(() => {
+      const p = Math.min(1, (performance.now() - start) / (secs * 1000))
+      try { if (deckRef.current) deckRef.current.volume = Math.max(0, curVol * (1 - p)) } catch {}
+      try { const vv = videoRef.current; if (vv && fadeInRef.current) vv.volume = Math.min(1, target * p) } catch {}
+      if (p >= 1) endCrossfade()
+    }, 60)
+  }
+  function endCrossfade() {
+    clearInterval(xfadeRef.current.iv)
+    if (!xfadeRef.current.active) return
+    xfadeRef.current.active = false
+    fadeInRef.current = false
+    const deck = deckRef.current
+    if (deck) { try { deck.pause(); deck.removeAttribute('src'); deck.load() } catch {} }
+    const v = videoRef.current
+    if (v) { try { v.volume = muted ? 0 : vol } catch {} }
+  }
+  // Manual navigation cancels any in-progress crossfade (clean hard cut).
+  const userNext = () => { endCrossfade(); next() }
+  const userPrev = () => { endCrossfade(); _apiRef.current.prev?.() }
 
   // Which track will play next, if it's predictable (not shuffle/repeat-one).
   function resolveNext() {
@@ -174,7 +229,7 @@ export default function MediaPlayer() {
   function onLoadedMeta() {
     const v = videoRef.current; if (!v) return
     setDur(v.duration || 0)
-    v.volume = vol; v.muted = muted
+    v.volume = fadeInRef.current ? 0 : vol; v.muted = muted
     const t = _resumeAt[current.id] || 0
     if (t > 0 && Math.abs(v.currentTime - t) > 0.5) { try { v.currentTime = t } catch {} }
     v.play().catch(() => {})
@@ -211,6 +266,14 @@ export default function MediaPlayer() {
           } catch {}
         }
       }
+      // Crossfade: when the current audio track is within the fade window of its
+      // end and there's a real next track, start the overlap.
+      const X = liveRef.current
+      if (d && X.crossfade > 0 && !X.isVideo && X.repeat !== 'one'
+          && !xfadeRef.current.active && X.queue.length > 1
+          && d - v.currentTime <= X.crossfade) {
+        startCrossfade()
+      }
     }
     const onDur = () => setDur(isNaN(v.duration) ? 0 : v.duration)
     const onProg = () => { try { if (v.buffered.length) setBuf(v.buffered.end(v.buffered.length - 1)) } catch {} }
@@ -224,7 +287,7 @@ export default function MediaPlayer() {
       if (rec) appendAndPlay(rec); else next()
     }
     const onWaiting = () => { if (isVideo && quality === 'auto' && sdReady && !usingSd) setStalls(s => s + 1) }
-    const onVolume = () => { setVol(v.volume); setMuted(v.muted) }
+    const onVolume = () => { if (xfadeRef.current.active) return; setVol(v.volume); setMuted(v.muted) }
     v.addEventListener('play', onPlay); v.addEventListener('pause', onPause)
     v.addEventListener('timeupdate', onTime); v.addEventListener('durationchange', onDur)
     v.addEventListener('progress', onProg); v.addEventListener('ended', onEnd)
@@ -250,7 +313,11 @@ export default function MediaPlayer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function seekTo(t) { const v = videoRef.current; if (v) { v.currentTime = t; setCur(t) } }
+  // If playback pauses mid-crossfade, stop the overlap cleanly.
+  useEffect(() => { if (!isPlaying && xfadeRef.current.active) endCrossfade() // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying])
+
+  function seekTo(t) { endCrossfade(); const v = videoRef.current; if (v) { v.currentTime = t; setCur(t) } }
   function toggleMute() { const v = videoRef.current; if (v) v.muted = !v.muted }
   function setVolume(x) { const v = videoRef.current; if (v) { v.volume = x; v.muted = x === 0 } }
   function toggleFullscreen() {
@@ -377,9 +444,9 @@ export default function MediaPlayer() {
           </div>
         </div>
         <div style={s.ovRow}>
-          {!isMobile && <button onClick={() => _apiRef.current.prev?.()} style={s.ovIcon} title="Anterior"><IcoPrev /></button>}
+          {!isMobile && <button onClick={userPrev} style={s.ovIcon} title="Anterior"><IcoPrev /></button>}
           <button onClick={() => _apiRef.current.toggle?.()} style={s.ovIcon} title={isPlaying ? 'Pausar' : 'Reproducir'}>{isPlaying ? <IcoPause /> : <IcoPlay />}</button>
-          <button onClick={next} style={s.ovIcon} title="Siguiente"><IcoNext /></button>
+          <button onClick={userNext} style={s.ovIcon} title="Siguiente"><IcoNext /></button>
           <span style={s.ovTime}>{fmt(cur)} / {fmt(dur)}</span>
           <span style={{ flex:1 }} />
           <button onClick={toggleMute} style={s.ovIcon} title={muted||vol===0 ? 'Activar sonido' : 'Silenciar'}>{muted||vol===0 ? <IcoVolMute /> : <IcoVol />}</button>
@@ -447,9 +514,9 @@ export default function MediaPlayer() {
         </div>
         {!isMobile && user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--accent)':'var(--text2)', fontSize:17 }} title="Me gusta">{liked?'♥':'♡'}</button>}
         <button onClick={toggleShuffle} style={{ ...s.barIcon, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
-        <button onClick={() => _apiRef.current.prev?.()} style={s.barIcon} title="Anterior"><IcoPrev /></button>
+        <button onClick={userPrev} style={s.barIcon} title="Anterior"><IcoPrev /></button>
         <button onClick={() => _apiRef.current.toggle?.()} style={s.barPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause/>:<IcoPlay/>}</button>
-        <button onClick={next} style={s.barIcon} title="Siguiente"><IcoNext /></button>
+        <button onClick={userNext} style={s.barIcon} title="Siguiente"><IcoNext /></button>
         <button onClick={cycleRepeat} style={{ ...s.barIcon, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
         {!isMobile && (
           <span style={s.barVol}>
@@ -580,9 +647,9 @@ export default function MediaPlayer() {
 
       <div style={s.npTransport}>
         <button onClick={toggleShuffle} style={{ ...s.npSec, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
-        <button onClick={() => _apiRef.current.prev?.()} style={s.npSkip} title="Anterior"><IcoPrev /></button>
+        <button onClick={userPrev} style={s.npSkip} title="Anterior"><IcoPrev /></button>
         <button onClick={() => _apiRef.current.toggle?.()} style={s.npPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause big/>:<IcoPlay big/>}</button>
-        <button onClick={next} style={s.npSkip} title="Siguiente"><IcoNext /></button>
+        <button onClick={userNext} style={s.npSkip} title="Siguiente"><IcoNext /></button>
         <button onClick={cycleRepeat} style={{ ...s.npSec, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
       </div>
 
@@ -643,6 +710,17 @@ export default function MediaPlayer() {
               <div style={s.qEmptyText}>Pulsa <b>«Añadir a la cola»</b> <span style={{ verticalAlign:'middle', display:'inline-flex' }}><IcoQueueList /></span> en cualquier canción para ponerla aquí y sonará a continuación.</div>
             </div>
           )}
+
+          <div style={s.xfSection}>
+            <div style={s.xfHead}>
+              <span style={s.qLabel}>Fundido entre canciones</span>
+              <span style={s.xfValue}>{crossfade === 0 ? 'Desactivado' : `${crossfade}s`}</span>
+            </div>
+            <input type="range" min={0} max={12} step={1} value={crossfade}
+              onChange={e => setCrossfade(Number(e.target.value))} style={s.xfSlider}
+              aria-label="Segundos de fundido entre canciones" />
+            <div style={s.xfHint}>La canción actual baja de volumen mientras la siguiente empieza por debajo y sube. Ponlo en 0 para cambiar sin fundido.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -652,6 +730,7 @@ export default function MediaPlayer() {
   // never remounts (everything is position:fixed, so DOM order ≠ visual order).
   return (
     <>
+      <audio ref={deckRef} style={{ display: 'none' }} preload="auto" />
       {queuePanel}
       {mediaSurface}
       {!expanded ? barChrome : (
@@ -833,6 +912,11 @@ const s = {
   qEmptyIcon: { display:'inline-flex', color:'var(--text3)', opacity:.7, marginBottom:10 },
   qEmptyTitle: { fontSize:15, fontWeight:700, color:'var(--text2)', marginBottom:7 },
   qEmptyText: { fontSize:13, lineHeight:1.55 },
+  xfSection: { marginTop:14, padding:'14px 6px 4px', borderTop:'1px solid var(--border)' },
+  xfHead: { display:'flex', alignItems:'center', justifyContent:'space-between' },
+  xfValue: { fontSize:13, fontWeight:700, color:'var(--accent2)', fontVariantNumeric:'tabular-nums' },
+  xfSlider: { width:'100%', accentColor:'var(--accent)', cursor:'pointer', marginTop:8 },
+  xfHint: { fontSize:12, lineHeight:1.5, color:'var(--text3)', marginTop:8 },
 
   // Video overlay controls (painted on the frame, auto-hiding).
   ovCenter: { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:4, width:64, height:64, borderRadius:'50%', background:'rgba(0,0,0,.5)', color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', paddingLeft:4 },
