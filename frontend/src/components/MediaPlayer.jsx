@@ -458,7 +458,6 @@ export default function MediaPlayer() {
           </span>
         )}
         {!isMobile && <button onClick={() => setShowQueue(true)} style={s.barIcon} title="Cola de reproducción"><IcoQueueList /></button>}
-        <button onClick={expand} style={s.barIcon} title="Abrir reproductor completo"><IcoSliders /></button>
         {!isMobile && <button onClick={close} style={s.barIcon} title="Cerrar">✕</button>}
       </div>
       <div style={{ ...s.barBottom, paddingLeft: coverClear }}>
@@ -717,7 +716,6 @@ const IcoShare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const IcoChevronDown = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
 const IcoPip  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7h-8v6h8V7zm2-4H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
 const IcoFull = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-const IcoSliders = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
 const IcoQueueList = ({big}) => <svg width={big?36:20} height={big?36:20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h11M4 12h11M4 17h7"/><path d="M15 13l6 3.5-6 3.5z" fill="currentColor" stroke="none"/></svg>
 const IcoHeart = ({filled}) => filled
   ? <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.3-10.5-11C.3 6.7 2.3 4 5.5 4 7.6 4 9 5.4 12 8c3-2.6 4.4-4 6.5-4 3.2 0 5.2 2.7 4 6C20.5 15.7 12 21 12 21z"/></svg>

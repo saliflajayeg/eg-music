@@ -75,7 +75,7 @@ export default function AddToPlaylist({ trackId, compact }) {
 
 const IcoSave = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 6h11M4 12h11M4 18h7" /><path d="M18 15v6M15 18h6" />
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /><path d="M12 7v6M9 10h6" />
   </svg>
 )
 
