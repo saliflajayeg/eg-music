@@ -14,7 +14,7 @@ import transcode
 import storage
 from auth import (
     hash_password, verify_password, create_token,
-    get_current_user, require_user, require_uploader, require_admin
+    get_current_user, require_user, require_uploader, require_admin, require_curator
 )
 
 # ── Init ───────────────────────────────────────────────────────────────────────
@@ -224,6 +224,7 @@ def change_email(body: ChangeEmailBody, user=Depends(require_user)):
 
 def _safe_user(u):
     d = {k: u[k] for k in ('id','username','email','display_name','bio','avatar','plan','is_admin','created_at')}
+    d['is_curator'] = int(u['is_curator']) if 'is_curator' in u.keys() else 0
     d.update(_plan_caps(u))
     return d
 
@@ -484,9 +485,9 @@ async def admin_upload_track(
     duration:    float = Form(0),     # override opcional (SoundCloud m4a / vídeo dan 0)
     audio:       UploadFile = File(...),
     cover:       Optional[UploadFile] = File(None),
-    user=Depends(require_admin),
+    user=Depends(require_curator),
 ):
-    """Sube una canción/vídeo A NOMBRE de otro artista (owner_user_id). Solo admin:
+    """Sube una canción/vídeo A NOMBRE de otro artista (owner_user_id). Admin o curador:
     para poblar la plataforma sin pedir las credenciales de cada artista. Los
     colaboradores quedan ACEPTADOS directamente (el admin es autoridad)."""
     owner = db.get_user_by_id(owner_user_id)
@@ -549,6 +550,42 @@ async def admin_upload_track(
     if media_type == 'video' and not storage.enabled():
         db.set_sd_status(tid, 'pending'); transcode.enqueue(tid)
     return db.get_track(tid, viewer_id=owner_user_id)
+
+@app.get("/api/admin/catalog")
+def curator_catalog(user=Depends(require_curator)):
+    """Catálogo mínimo de todos los usuarios (id, usuario, nombre) para que el
+    bot de curación detecte duplicados y resuelva IDs. No expone email/plan:
+    accesible a curadores sin darles el panel de usuarios completo."""
+    return [{"id": u["id"], "username": u["username"],
+             "display_name": u.get("display_name") or u["username"]}
+            for u in db.get_all_users()]
+
+class EnsureArtistBody(BaseModel):
+    username: str
+    display_name: str = ''
+    email: str = ''
+    password: str
+
+@app.post("/api/admin/ensure-artist", status_code=200)
+def ensure_artist(body: EnsureArtistBody, user=Depends(require_curator)):
+    """Crea (o encuentra) una cuenta de artista y la deja en premium, para que
+    el curador pueda subir a su nombre sin pedirle credenciales. Devuelve
+    {id, created}. Scope de curador: NO puede tocar admin/curador de nadie."""
+    username = body.username.strip().lower()
+    if len(username) < 3:
+        raise HTTPException(400, "El nombre de usuario debe tener al menos 3 caracteres")
+    existing = db.get_user_by_username(username)
+    if existing:
+        return {"id": existing["id"], "created": False}
+    if len(body.password) < 6:
+        raise HTTPException(400, "La contraseña temporal debe tener al menos 6 caracteres")
+    email = (body.email or f"{username}@artist.egmusic").strip().lower()
+    if db.get_user_by_email(email):
+        raise HTTPException(409, "Ese email ya está registrado")
+    display = body.display_name.strip() or username
+    uid = db.create_user(username, email, hash_password(body.password), display)
+    db.update_user(uid, plan='premium')   # las 'free' no pueden ser dueñas para subir cómodamente
+    return {"id": uid, "created": True}
 
 @app.delete("/api/tracks/{track_id}")
 def delete_track(track_id: int, user=Depends(require_user)):
@@ -892,6 +929,7 @@ class ReviewBody(BaseModel):
 class AdminUserUpdate(BaseModel):
     plan: Optional[str] = None
     is_admin: Optional[int] = None
+    is_curator: Optional[int] = None
 
 class SettingsBody(BaseModel):
     payment_instructions: Optional[str] = None
@@ -931,6 +969,7 @@ def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admi
             raise HTTPException(400, "Plan inválido")
         kwargs['plan'] = body.plan
     if body.is_admin is not None: kwargs['is_admin'] = body.is_admin
+    if body.is_curator is not None: kwargs['is_curator'] = body.is_curator
     db.update_user(uid, **kwargs)
     return db.get_user_by_id(uid)
 

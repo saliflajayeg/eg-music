@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar TEXT DEFAULT '',
     plan TEXT DEFAULT 'free',
     is_admin INTEGER DEFAULT 0,
+    is_curator INTEGER DEFAULT 0,
     created_at TEXT DEFAULT {_PG_NOW}
 );
 CREATE TABLE IF NOT EXISTS tracks (
@@ -178,7 +179,8 @@ class Database:
             self.conn.executescript(_PG_SCHEMA)
             # In-place migrations for existing Postgres DBs (CREATE IF NOT EXISTS
             # can't add columns to a table that already exists).
-            for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",):
+            for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_curator INTEGER DEFAULT 0"):
                 try: self.conn.execute(stmt)
                 except Exception: pass
             self.conn.commit()
@@ -194,6 +196,7 @@ class Database:
                 avatar       TEXT DEFAULT '',
                 plan         TEXT DEFAULT 'free',
                 is_admin     INTEGER DEFAULT 0,
+                is_curator   INTEGER DEFAULT 0,
                 created_at   TEXT DEFAULT (datetime('now'))
             );
 
@@ -379,6 +382,9 @@ class Database:
             self.conn.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'")
         if 'is_subscriber' in user_cols:
             self.conn.execute("UPDATE users SET plan='pro' WHERE is_subscriber=1 AND (plan IS NULL OR plan='free')")
+        # is_curator: cuenta que SOLO puede subir por otros y crear artistas (bot de curación)
+        if 'is_curator' not in user_cols:
+            self.conn.execute("ALTER TABLE users ADD COLUMN is_curator INTEGER DEFAULT 0")
 
         track_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tracks)").fetchall()]
         if 'media_type' not in track_cols:
@@ -460,7 +466,7 @@ class Database:
         return dict(r) if r else None
 
     def update_user(self, uid, **kwargs):
-        allowed = {'display_name','bio','avatar','plan','is_admin'}
+        allowed = {'display_name','bio','avatar','plan','is_admin','is_curator'}
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:
             return
@@ -489,7 +495,7 @@ class Database:
 
     def get_all_users(self):
         rows = self.conn.execute(
-            'SELECT id,username,email,display_name,plan,is_admin,created_at FROM users ORDER BY created_at DESC'
+            'SELECT id,username,email,display_name,plan,is_admin,is_curator,created_at FROM users ORDER BY created_at DESC'
         ).fetchall()
         return [dict(r) for r in rows]
 

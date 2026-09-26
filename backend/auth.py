@@ -84,3 +84,11 @@ def require_admin(user=Depends(require_user)):
     if not user['is_admin']:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Acceso solo para administradores")
     return user
+
+def require_curator(user=Depends(require_user)):
+    """Admin O curador. El curador es una cuenta limitada para poblar la
+    plataforma: puede subir a nombre de otros y crear cuentas de artista,
+    pero NO borra temas, ni gestiona usuarios, pagos o ganancias."""
+    if not (user['is_admin'] or user.get('is_curator')):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Necesitas ser administrador o curador")
+    return user
