@@ -25,6 +25,11 @@
   --radius:      12px;
   --player-h:    80px;
   --bottomnav-h: 0px;   /* becomes 58px on phones (bottom tab bar) */
+
+  /* Motion. Mirrored in src/motion.js (EASE) for code-driven animations. */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Phone: a bottom tab bar exists, so reserve room for it below the player. */
@@ -49,6 +54,38 @@ img, video, pre { max-width: 100%; }
 
 button  { cursor: pointer; font-family: inherit; border: none; background: none; color: inherit; }
 a       { text-decoration: none; color: inherit; }
+
+/* Press feedback: every button gives a little under the finger, so a tap
+   always feels heard. Replaces Android's grey tap flash. */
+button, a { -webkit-tap-highlight-color: transparent; }
+button { transition: transform 160ms var(--ease-out); }
+button:not(:disabled):active,
+.btn-primary:active, .btn-outline:active { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active,
+  .btn-primary:active, .btn-outline:active { transform: none; opacity: .8; }
+}
+
+/* Overlays (queue sheet, "Guardar en…" modal). Mounted via usePresence() in
+   src/motion.js, which sets data-closing while they animate out. Transitions,
+   not keyframes, so reopening mid-exit reverses smoothly. */
+.eg-backdrop { transition: opacity 240ms var(--ease-out); }
+.eg-backdrop[data-closing] { opacity: 0; pointer-events: none; }
+@starting-style { .eg-backdrop { opacity: 0; } }
+
+.eg-sheet { transition: transform 380ms var(--ease-drawer); }
+.eg-sheet[data-closing] { transform: translateY(100%); transition-duration: 260ms; }
+@starting-style { .eg-sheet { transform: translateY(100%); } }
+
+.eg-modal { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.eg-modal[data-closing] { opacity: 0; transform: scale(0.96); transition-duration: 150ms; }
+@starting-style { .eg-modal { opacity: 0; transform: scale(0.96); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .eg-sheet, .eg-modal { transition: opacity 200ms ease; }
+  .eg-sheet[data-closing], .eg-modal[data-closing] { transform: none; opacity: 0; }
+  @starting-style { .eg-sheet, .eg-modal { transform: none; opacity: 0; } }
+}
 input, textarea, select { font-family: inherit; }
 
 /* Scrollbar */
@@ -61,7 +98,7 @@ input, textarea, select { font-family: inherit; }
 .btn-primary {
   background: var(--accent); color: #fff; font-weight: 600;
   padding: 10px 22px; border-radius: 8px; font-size: 14px;
-  transition: background .15s; cursor: pointer; border: none;
+  transition: background .15s, transform 160ms var(--ease-out); cursor: pointer; border: none;
 }
 .btn-primary:hover { background: var(--accent2); }
 
@@ -69,7 +106,7 @@ input, textarea, select { font-family: inherit; }
   background: transparent; color: var(--text);
   border: 1px solid var(--border); font-weight: 500;
   padding: 9px 20px; border-radius: 8px; font-size: 14px;
-  transition: border-color .15s, background .15s; cursor: pointer;
+  transition: border-color .15s, background .15s, transform 160ms var(--ease-out); cursor: pointer;
 }
 .btn-outline:hover { border-color: var(--text2); background: var(--bg3); }
 

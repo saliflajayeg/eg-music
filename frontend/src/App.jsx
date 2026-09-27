@@ -6,6 +6,7 @@ import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
 import BottomNav from './components/BottomNav'
 import InstallPrompt from './components/InstallPrompt'
+import { Toaster } from 'sonner'
 import Home      from './pages/Home'
 import Explore   from './pages/Explore'
 import Login     from './pages/Login'
@@ -59,6 +60,11 @@ export default function App() {
         </div>
         <BottomNav />
         <InstallPrompt />
+        {/* Toasts sit just above the mini player and the phone tab bar. */}
+        <Toaster theme="dark" position="bottom-center"
+          offset={{ bottom: 'calc(var(--player-h) + var(--bottomnav-h) + 12px)' }}
+          mobileOffset={{ bottom: 'calc(var(--player-h) + var(--bottomnav-h) + 12px)' }}
+          toastOptions={{ style: { background:'var(--bg3)', color:'var(--text)', border:'1px solid var(--border)' } }} />
       </MediaProvider>
     </AuthProvider>
   )

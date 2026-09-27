@@ -7,6 +7,7 @@ import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offlin
 import { shareTrack } from '../share'
 import ArtistLine from './ArtistLine'
 import AddToPlaylist from './AddToPlaylist'
+import { toast } from 'sonner'
 
 // YouTube-style card: a big 16:9 thumbnail leads, title + artist below.
 // onRemove(id): when given (e.g. inside a playlist), shows a "Quitar" action.
@@ -44,7 +45,7 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
   async function handleShare(e) {
     e.stopPropagation()
     const r = await shareTrack(track)
-    if (r === 'copied') alert('Enlace copiado. Pégalo donde quieras compartirlo.')
+    if (r === 'copied') toast('Enlace copiado', { description: 'Pégalo donde quieras compartirlo.' })
   }
   async function handleDownload(e) {
     e.stopPropagation()

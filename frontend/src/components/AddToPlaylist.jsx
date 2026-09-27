@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { playlistsForTrack, addToPlaylist, removeFromPlaylist, createPlaylist } from '../api'
+import { usePresence } from '../motion'
 
 // A self-contained "save to playlist" control: a small trigger button that
 // opens a modal listing the user's playlists (tick to add/remove) plus a box
@@ -13,6 +15,7 @@ export default function AddToPlaylist({ trackId, compact }) {
   const [lists, setLists]   = useState(null)
   const [newName, setNewName] = useState('')
   const [busy, setBusy]     = useState(false)
+  const modal = usePresence(open, 150)
 
   async function openMenu(e) {
     e?.stopPropagation()
@@ -43,9 +46,11 @@ export default function AddToPlaylist({ trackId, compact }) {
       <button onClick={openMenu} style={compact ? s.iconBtn : s.textBtn} title="Guardar en una lista" aria-label="Guardar en una lista">
         <IcoSave /> {compact ? null : 'Guardar'}
       </button>
-      {open && (
-        <div style={s.backdrop} onClick={(e) => { e.stopPropagation(); setOpen(false) }}>
-          <div style={s.modal} onClick={e => e.stopPropagation()}>
+      {/* Portaled to <body> so it always sits above the player (whose layers
+          would otherwise trap its z-index below the album cover). */}
+      {modal.mounted && createPortal(
+        <div className="eg-backdrop" data-closing={modal.closing ? '' : undefined} style={s.backdrop} onClick={(e) => { e.stopPropagation(); setOpen(false) }}>
+          <div className="eg-modal" data-closing={modal.closing ? '' : undefined} style={s.modal} onClick={e => e.stopPropagation()}>
             <div style={s.head}>
               <span>Guardar en…</span>
               <button onClick={() => setOpen(false)} style={s.x} aria-label="Cerrar">✕</button>
@@ -67,7 +72,8 @@ export default function AddToPlaylist({ trackId, compact }) {
               <button onClick={create} disabled={busy || !newName.trim()} style={s.createBtn}>Crear</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   )

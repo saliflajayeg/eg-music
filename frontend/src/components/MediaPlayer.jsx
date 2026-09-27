@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useMedia } from '../context/MediaContext'
 import { useAuth } from '../context/AuthContext'
@@ -10,6 +10,8 @@ import ArtistLine, { PERFORMING_ROLES } from './ArtistLine'
 import ArtistHeader from './ArtistHeader'
 import Comments from './Comments'
 import AddToPlaylist from './AddToPlaylist'
+import { EASE, prefersReducedMotion, usePresence } from '../motion'
+import { toast } from 'sonner'
 
 const HEADER_H = 52
 const _resumeAt = {}   // last position per track, kept across src/quality swaps
@@ -56,7 +58,6 @@ export default function MediaPlayer() {
   const wide = !useIsMobile(860)    // side-by-side suggestions on desktop-ish widths
   const videoRef = useRef(null)
   const wrapRef  = useRef(null)
-  const touchY   = useRef(null)   // swipe-down-to-minimize
 
   const isVideo = current.media_type === 'video'
   const sdReady = current.sd_status === 'ready' && !!current.sd_file
@@ -74,7 +75,12 @@ export default function MediaPlayer() {
   const [liked, setLiked] = useState(!!current.liked_by_me)
   const [likeCount, setLikeCount] = useState(current.like_count || 0)
   const [dl, setDl] = useState('none')
-  const [topOffset, setTopOffset] = useState(0)   // bottom of the app navbar; the expanded player sits below it
+  // Bottom of the app navbar; the expanded player sits below it. Measured up
+  // front so the first open doesn't shift mid-animation.
+  const [topOffset, setTopOffset] = useState(() => {
+    const nav = typeof document !== 'undefined' && document.querySelector('nav')
+    return nav ? Math.max(0, Math.round(nav.getBoundingClientRect().bottom)) : 0
+  })
   const [showCtl, setShowCtl] = useState(true)    // video overlay controls auto-hide
   const hideTimer = useRef(null)
   const scrollRef = useRef(0)   // how far the page has scrolled (media slides with it)
@@ -82,6 +88,27 @@ export default function MediaPlayer() {
   const baseTopRef = useRef(0)  // top of the media frame before scroll (for scroll-sync)
   const [suggestions, setSuggestions] = useState([])   // similar tracks (same genre)
   const [showQueue, setShowQueue] = useState(false)     // the "cola" sheet
+  const queueSheet = usePresence(showQueue, 260)
+
+  // ── Open/close animation of the full player ────────────────────────────
+  // The page (header + panes) slides up from the bottom like a sheet, while
+  // the media frame flies from the mini-bar thumbnail to its big spot (FLIP).
+  // Closing reverses both, so the page stays mounted until it's slid away.
+  const npRef = useRef(null)          // wraps the expanded page chrome
+  const npAnimRef = useRef(null)
+  const mediaAnimRef = useRef(null)
+  const flipFromRef = useRef(null)    // media frame rect before the switch
+  const [npMounted, setNpMounted] = useState(expanded)
+  const [barHold, setBarHold] = useState(false)   // keep the mini bar under the page while it slides in
+  const [prevExpanded, setPrevExpanded] = useState(expanded)
+  if (prevExpanded !== expanded) {
+    // The DOM still shows the old layout during this render: grab the frame's
+    // on-screen rect (including any drag offset) before React moves it.
+    flipFromRef.current = wrapRef.current ? wrapRef.current.getBoundingClientRect() : null
+    setPrevExpanded(expanded)
+    setBarHold(expanded && !prefersReducedMotion())
+    if (expanded) setNpMounted(true)
+  }
   // Crossfade length in seconds (0 = off). Persisted per device.
   const [crossfade, setCrossfadeState] = useState(() => {
     try { const v = parseInt(localStorage.getItem('eg_crossfade') ?? '6', 10); return isNaN(v) ? 6 : Math.max(0, Math.min(12, v)) } catch { return 6 }
@@ -193,7 +220,7 @@ export default function MediaPlayer() {
 
   // Keep the app navbar visible when expanded (feels like YouTube's page, not a
   // takeover): measure where the navbar ends and start the player below it.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!expanded) return
     const measure = () => {
       const nav = document.querySelector('nav')
@@ -204,6 +231,79 @@ export default function MediaPlayer() {
     const t = setTimeout(measure, 60)
     return () => { window.removeEventListener('resize', measure); clearTimeout(t) }
   }, [expanded, isMobile])
+
+  // Play the open/close animation. Skipped on first mount, so a deep link to
+  // /watch/:id just shows the page (there's no mini bar it came from).
+  const npFirstRun = useRef(true)
+  useLayoutEffect(() => {
+    if (npFirstRun.current) { npFirstRun.current = false; return }
+    const reduce = prefersReducedMotion()
+    const w = wrapRef.current, np = npRef.current
+    const from = flipFromRef.current; flipFromRef.current = null
+
+    // Media frame: FLIP from where it was to where it now sits.
+    mediaAnimRef.current?.cancel()
+    if (w) w.style.transform = ''          // drop any drag offset (already in `from`)
+    if (w && from && !reduce) {
+      const to = w.getBoundingClientRect()
+      if (to.width && to.height) {
+        mediaAnimRef.current = w.animate([
+          { transformOrigin:'0 0', transform:`translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+          { transformOrigin:'0 0', transform:'none' },
+        ], { duration: expanded ? 380 : 280, easing: EASE.drawer })
+      }
+    }
+
+    // Page: slide up from the bottom / back down. Start from wherever it
+    // currently is (mid-animation or mid-drag) so interrupting is seamless.
+    if (!np) return
+    const wasMoving = !!npAnimRef.current || !!np.style.transform
+    const cur = getComputedStyle(np).transform
+    npAnimRef.current?.cancel(); npAnimRef.current = null
+    np.style.transform = ''
+    const start = wasMoving && cur !== 'none' ? cur : null
+    let anim
+    if (expanded) {
+      anim = reduce
+        ? np.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease' })
+        : np.animate([{ transform: start || 'translateY(100%)' }, { transform: 'none' }], { duration: 380, easing: EASE.drawer })
+      anim.onfinish = () => { npAnimRef.current = null; setBarHold(false) }
+    } else {
+      anim = reduce
+        ? np.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease', fill: 'forwards' })
+        : np.animate([{ transform: start || 'none' }, { transform: 'translateY(100%)' }], { duration: 280, easing: EASE.drawer, fill: 'forwards' })
+      anim.onfinish = () => { npAnimRef.current = null; setNpMounted(false) }
+    }
+    npAnimRef.current = anim
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded])
+
+  // Drag the header down to minimize: page and media follow the finger; let
+  // go past the threshold (or flick) to close, otherwise it snaps back.
+  const dragRef = useRef(null)
+  function onHeadTouchStart(e) {
+    if (npAnimRef.current) return          // still sliding in — ignore
+    dragRef.current = { y: e.touches[0].clientY, t: performance.now(), dy: 0 }
+  }
+  function onHeadTouchMove(e) {
+    const d = dragRef.current; if (!d) return
+    d.dy = Math.max(0, e.touches[0].clientY - d.y)
+    const tf = d.dy ? `translateY(${d.dy}px)` : ''
+    if (npRef.current) npRef.current.style.transform = tf
+    if (wrapRef.current) wrapRef.current.style.transform = tf
+  }
+  function onHeadTouchEnd() {
+    const d = dragRef.current; dragRef.current = null
+    if (!d || !d.dy) return
+    const velocity = d.dy / Math.max(1, performance.now() - d.t)   // px/ms
+    if (d.dy > 120 || (d.dy > 30 && velocity > 0.5)) { collapse(); return }
+    for (const el of [npRef.current, wrapRef.current]) {
+      if (!el || !el.style.transform) continue
+      const from = el.style.transform
+      el.style.transform = ''
+      el.animate([{ transform: from }, { transform: 'none' }], { duration: 240, easing: EASE.out })
+    }
+  }
 
   // Resolve the source (downloaded copy > adaptive stream), preserving position
   // on a quality swap and counting a view only on a genuine new track.
@@ -352,7 +452,7 @@ export default function MediaPlayer() {
     try { const r = await likeTrack(current.id); setLiked(r.liked); setLikeCount(r.like_count) } catch {}
   }
   async function handleShare() {
-    const r = await shareTrack(current); if (r === 'copied') alert('Enlace copiado. Pégalo donde quieras compartirlo.')
+    const r = await shareTrack(current); if (r === 'copied') toast('Enlace copiado', { description: 'Pégalo donde quieras compartirlo.' })
   }
   async function handleDownload() {
     if (!user) { navigate('/login'); return }
@@ -400,7 +500,8 @@ export default function MediaPlayer() {
   // The "full player" square cover is ONLY the phone audio view. On desktop,
   // audio keeps the old Escenario layout (media + suggestions, two columns).
   const AUDIO_SQ = 'min(300px, 74vw)'
-  const squareCover = expanded && !isVideo && !wide
+  const phoneAudio  = !isVideo && !wide
+  const squareCover = expanded && phoneAudio
   const baseTop = squareCover ? HEAD + 16 : (wide ? HEAD + 18 : HEAD)
   baseTopRef.current = baseTop
   const frameTop = baseTop - scrollRef.current
@@ -410,7 +511,7 @@ export default function MediaPlayer() {
   const frameStyle = !expanded
     ? { position:'fixed', bottom:(isMobile?'calc(var(--bottomnav-h) + 12px)':14), left:(isMobile?10:14), width:(isMobile?52:56), height:(isMobile?52:56), borderRadius:9, overflow:'hidden', background:'#000', zIndex:160, cursor:'pointer' }
     : squareCover
-      ? { position:'fixed', top:frameTop, left:'50%', transform:'translateX(-50%)', width:AUDIO_SQ, height:AUDIO_SQ, borderRadius:22, overflow:'hidden', background:'var(--bg2)', zIndex:160, clipPath:clip, boxShadow:'0 30px 70px -22px rgba(236,28,43,.5)' }
+      ? { position:'fixed', top:frameTop, left:`calc(50% - ${AUDIO_SQ} / 2)`, width:AUDIO_SQ, height:AUDIO_SQ, borderRadius:22, overflow:'hidden', background:'var(--bg2)', zIndex:160, clipPath:clip, boxShadow:'0 30px 70px -22px rgba(236,28,43,.5)' }
       : wide
         ? { position:'fixed', top:frameTop, left:STAGE_LEFT, height:mediaH, width:mediaW, borderRadius:12, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
         : { position:'fixed', top:frameTop, left:0, right:0, width:'100%', height:mMediaH, overflow:'hidden', background:'#000', zIndex:160, clipPath:clip }
@@ -677,9 +778,9 @@ export default function MediaPlayer() {
   // The "cola" (queue) sheet: what's playing now + everything lined up next,
   // with an empty state that tells you how to add songs.
   const upcoming = queue.map((t, i) => ({ t, i })).filter(x => x.i !== index)
-  const queuePanel = showQueue && (
-    <div style={s.qOverlay} onClick={() => setShowQueue(false)}>
-      <div style={s.qSheet} onClick={e => e.stopPropagation()}>
+  const queuePanel = queueSheet.mounted && (
+    <div className="eg-backdrop" data-closing={queueSheet.closing ? '' : undefined} style={s.qOverlay} onClick={() => setShowQueue(false)}>
+      <div className="eg-sheet" data-closing={queueSheet.closing ? '' : undefined} style={s.qSheet} onClick={e => e.stopPropagation()}>
         <div style={s.qHandle} />
         <div style={s.qHead}>
           <span style={{ display:'flex', color:'var(--accent)' }}><IcoQueueList /></span>
@@ -739,11 +840,12 @@ export default function MediaPlayer() {
       <audio ref={deckRef} style={{ display: 'none' }} preload="auto" />
       {queuePanel}
       {mediaSurface}
-      {!expanded ? barChrome : (
-      <>
+      {(!expanded || barHold) && barChrome}
+      {(expanded || npMounted) && (
+      <div ref={npRef} style={s.npLayer}>
       <div style={{ ...s.fsHeader, top: TOP }}
-           onTouchStart={e => { touchY.current = e.touches[0].clientY }}
-           onTouchEnd={e => { if (touchY.current != null && e.changedTouches[0].clientY - touchY.current > 45) collapse(); touchY.current = null }}>
+           onTouchStart={onHeadTouchStart} onTouchMove={onHeadTouchMove}
+           onTouchEnd={onHeadTouchEnd} onTouchCancel={onHeadTouchEnd}>
         <button onClick={collapse} style={s.fsMinBtn} title="Minimizar">
           <IcoChevronDown />{!isMobile && <span>Minimizar</span>}
         </button>
@@ -752,7 +854,7 @@ export default function MediaPlayer() {
         <button onClick={close} style={s.fsIcon} title="Cerrar">✕</button>
       </div>
 
-      {squareCover ? (
+      {phoneAudio ? (
         <div ref={paneRef} onScroll={onPaneScroll} className="eg-pane" style={{ ...s.fsBody, top: HEAD, maxWidth:480, paddingTop:`calc(${AUDIO_SQ} + 34px)` }}>
           {nowPlaying}
           {upNextBlock}
@@ -775,7 +877,7 @@ export default function MediaPlayer() {
           {commentsBlock}
         </div>
       )}
-      </>
+      </div>
       )}
     </>
   )
@@ -830,13 +932,16 @@ const s = {
   barSeekFill: { position:'absolute', top:0, left:0, height:'100%', borderRadius:3, background:'var(--accent)' },
   barSeekKnob: { position:'absolute', top:'50%', width:11, height:11, borderRadius:'50%', background:'var(--accent)', transform:'translate(-50%,-50%)', boxShadow:'0 0 0 3px rgba(236,28,43,.3)' },
 
-  fsHeader: { position:'fixed', top:0, left:0, right:0, height:HEADER_H, zIndex:165, background:'var(--bg)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, padding:'0 12px' },
+  // One layer holding the expanded page, so it can slide as a unit. Its fixed
+  // children still line up with the viewport (the layer is inset:0).
+  npLayer: { position:'fixed', inset:0, zIndex:150, pointerEvents:'none' },
+  fsHeader: { pointerEvents:'auto', position:'fixed', top:0, left:0, right:0, height:HEADER_H, zIndex:165, background:'var(--bg)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, padding:'0 12px' },
   fsHeaderTitle: { flex:1, fontSize:14, fontWeight:600, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
   fsIcon: { color:'var(--text2)', padding:6, background:'none', border:'none', cursor:'pointer', display:'flex' },
   fsMinBtn: { display:'flex', alignItems:'center', gap:6, color:'var(--text)', fontSize:13, fontWeight:600, background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:20, padding:'6px 12px 6px 8px', cursor:'pointer' },
-  fsBody: { position:'fixed', top:HEADER_H, left:0, right:0, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 18px 40px', maxWidth:800, margin:'0 auto' },
-  fsLeft: { position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 0 48px' },
-  fsRight: { position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'2px 0 48px' },
+  fsBody: { pointerEvents:'auto', position:'fixed', top:HEADER_H, left:0, right:0, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 18px 40px', maxWidth:800, margin:'0 auto' },
+  fsLeft: { pointerEvents:'auto', position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'0 0 48px' },
+  fsRight: { pointerEvents:'auto', position:'fixed', top:HEADER_H, bottom:0, zIndex:150, background:'var(--bg)', overflowY:'auto', padding:'2px 0 48px' },
   fsTitle: { fontSize:20, fontWeight:700, marginBottom:8 },
   fsMeta: { display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', marginBottom:14 },
   fsArtist: { fontSize:14, color:'var(--accent2)', fontWeight:600 },
