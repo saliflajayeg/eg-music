@@ -47,7 +47,7 @@ const fmtCount = n => {
 export default function MediaPlayer() {
   const media = useMedia()
   const { current, queue, index, isPlaying, expanded, shuffle, repeat,
-          next, prev, collapse, expand, close, toggleShuffle, cycleRepeat,
+          next, prev, collapse, expand, close, cyclePlayMode,
           addToQueue, jumpTo, removeFromQueue, appendAndPlay, _apiRef, _setIsPlaying } = media
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -368,6 +368,16 @@ export default function MediaPlayer() {
     ? current.artists.map(a => a.display_name || a.username).join(', ')
     : (current.artist || current.display_name || current.username)
 
+  // One combined shuffle/repeat control: it cycles normal → aleatorio →
+  // repetir cola → repetir una. These drive its icon, colour and tooltip.
+  const playMode = shuffle ? 'shuffle' : repeat   // 'shuffle' | 'off' | 'all' | 'one'
+  const modeOn = playMode !== 'off'
+  const modeIcon = playMode === 'shuffle' ? <IcoShuffle /> : playMode === 'one' ? <IcoRepeatOne /> : <IcoRepeat />
+  const modeTitle = playMode === 'shuffle' ? 'Aleatorio'
+    : playMode === 'all' ? 'Repetir cola'
+    : playMode === 'one' ? 'Repetir esta'
+    : 'Reproducción normal'
+
   // Everything in the expanded player is positioned below the app navbar (TOP)
   // so the app chrome stays visible — the "same window" YouTube feel.
   const TOP = topOffset
@@ -513,11 +523,10 @@ export default function MediaPlayer() {
           <div style={s.barArtist}>{artistName}</div>
         </div>
         {!isMobile && user && <button onClick={handleLike} style={{ ...s.barIcon, color: liked?'var(--accent)':'var(--text2)', fontSize:17 }} title="Me gusta">{liked?'♥':'♡'}</button>}
-        <button onClick={toggleShuffle} style={{ ...s.barIcon, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
+        <button onClick={cyclePlayMode} style={{ ...s.barIcon, color: modeOn?'var(--accent)':'var(--text2)' }} title={modeTitle}>{modeIcon}</button>
         <button onClick={userPrev} style={s.barIcon} title="Anterior"><IcoPrev /></button>
         <button onClick={() => _apiRef.current.toggle?.()} style={s.barPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause/>:<IcoPlay/>}</button>
         <button onClick={userNext} style={s.barIcon} title="Siguiente"><IcoNext /></button>
-        <button onClick={cycleRepeat} style={{ ...s.barIcon, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
         {!isMobile && (
           <span style={s.barVol}>
             <button onClick={toggleMute} style={s.barIcon} title={muted||vol===0?'Activar sonido':'Silenciar'}>{muted||vol===0?<IcoVolMute/>:<IcoVol/>}</button>
@@ -589,10 +598,7 @@ export default function MediaPlayer() {
       <div style={s.upHead}>
         <span style={s.upTitle}>{railFromQueue ? 'A continuación' : 'Recomendadas'}</span>
         <div style={{ display:'flex', gap:2 }}>
-          <button onClick={toggleShuffle} style={{ ...s.upCtl, color: shuffle ? 'var(--accent)' : 'var(--text3)' }} title={shuffle ? 'Aleatorio activado' : 'Reproducción aleatoria'}><IcoShuffle /></button>
-          <button onClick={cycleRepeat} style={{ ...s.upCtl, color: repeat!=='off' ? 'var(--accent)' : 'var(--text3)' }} title={repeat==='one' ? 'Repetir esta' : repeat==='all' ? 'Repetir cola' : 'Repetir'}>
-            {repeat==='one' ? <IcoRepeatOne /> : <IcoRepeat />}
-          </button>
+          <button onClick={cyclePlayMode} style={{ ...s.upCtl, color: modeOn ? 'var(--accent)' : 'var(--text3)' }} title={modeTitle}>{modeIcon}</button>
         </div>
       </div>
       {railItems.length > 0
@@ -646,11 +652,11 @@ export default function MediaPlayer() {
       <div style={s.npTimes}><span>{fmt(cur)}</span><span>{fmt(dur)}</span></div>
 
       <div style={s.npTransport}>
-        <button onClick={toggleShuffle} style={{ ...s.npSec, color: shuffle?'var(--accent)':'var(--text2)' }} title={shuffle?'Aleatorio activado':'Aleatorio'}><IcoShuffle /></button>
+        <button onClick={cyclePlayMode} style={{ ...s.npSec, color: modeOn?'var(--accent)':'var(--text2)' }} title={modeTitle}>{modeIcon}</button>
         <button onClick={userPrev} style={s.npSkip} title="Anterior"><IcoPrev /></button>
         <button onClick={() => _apiRef.current.toggle?.()} style={s.npPlay} title={isPlaying?'Pausar':'Reproducir'}>{isPlaying?<IcoPause big/>:<IcoPlay big/>}</button>
         <button onClick={userNext} style={s.npSkip} title="Siguiente"><IcoNext /></button>
-        <button onClick={cycleRepeat} style={{ ...s.npSec, color: repeat!=='off'?'var(--accent)':'var(--text2)' }} title={repeat==='one'?'Repetir esta':repeat==='all'?'Repetir cola':'Repetir'}>{repeat==='one'?<IcoRepeatOne/>:<IcoRepeat/>}</button>
+        <button onClick={() => setShowQueue(true)} style={s.npSec} title="Cola de reproducción"><IcoQueueList /></button>
       </div>
 
       <div style={s.npVol}>

@@ -134,6 +134,15 @@ export function MediaProvider({ children }) {
     jumpTo, removeFromQueue, appendAndPlay,
     toggleShuffle: () => setShuffle(s => !s),
     cycleRepeat: () => setRepeat(r => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')),
+    // One control that cycles the play mode: normal → aleatorio → repetir cola
+    // → repetir una → normal (shuffle and repeat are treated as one setting).
+    cyclePlayMode: () => {
+      const mode = shuffle ? 'shuffle' : repeat            // 'shuffle' | 'off' | 'all' | 'one'
+      if (mode === 'off')          { setShuffle(true);  setRepeat('off') }   // → aleatorio
+      else if (mode === 'shuffle') { setShuffle(false); setRepeat('all') }   // → repetir cola
+      else if (mode === 'all')     { setShuffle(false); setRepeat('one') }   // → repetir una
+      else                         { setShuffle(false); setRepeat('off') }   // → normal
+    },
     // Open the full player as its own page; minimize returns to where you were
     // (a real in-app back), or home if the watch page was opened directly.
     expand: () => { if (current) navigate('/watch/' + current.id, { state: { fromApp: true } }) },
