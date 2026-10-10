@@ -6,6 +6,37 @@ import { useIsMobile } from '../hooks'
 import { useMedia } from '../context/MediaContext'
 import TrackCard from '../components/TrackCard'
 
+// Interaction polish injected once: press feedback, card hover-lift, the dot
+// morph and a staggered entrance — all off the main thread and reduced-motion
+// aware. Inline styles stay for layout; these classes add the motion.
+if (typeof document !== 'undefined' && !document.getElementById('eg-home-css')) {
+  const st = document.createElement('style')
+  st.id = 'eg-home-css'
+  st.textContent = `
+  :root{ --ease-out: cubic-bezier(.23,1,.32,1); }
+  .eg-press{ transition: transform 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+  .eg-press:active{ transform: scale(.97); }
+  .eg-card{ transition: transform 220ms var(--ease-out), border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out); }
+  .eg-card:active{ transform: scale(.98); }
+  .eg-row{ transition: background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+  .eg-row:active{ transform: scale(.993); }
+  .eg-dot-t{ transition: width 260ms var(--ease-out), background-color 260ms var(--ease-out); }
+  .eg-link{ transition: opacity 140ms var(--ease-out); }
+  @media (hover:hover) and (pointer:fine){
+    .eg-card:hover{ transform: translateY(-3px); border-color: rgba(236,28,43,.5); box-shadow: 0 14px 32px -16px rgba(0,0,0,.75); }
+    .eg-row:hover{ background-color: var(--bg3); }
+    .eg-link:hover{ opacity:.7; }
+  }
+  @keyframes egRise{ from{ opacity:0; transform: translateY(10px); } to{ opacity:1; transform:none; } }
+  .eg-rise{ animation: egRise 440ms var(--ease-out) backwards; }
+  @media (prefers-reduced-motion: reduce){
+    .eg-press,.eg-card,.eg-row,.eg-dot-t,.eg-link{ transition:none; }
+    .eg-press:active,.eg-card:active,.eg-card:hover,.eg-row:active{ transform:none; }
+    .eg-rise{ animation:none; }
+  }`
+  document.head.appendChild(st)
+}
+
 export default function Home() {
   const { user } = useAuth()
   const isMobile = useIsMobile()
@@ -40,10 +71,10 @@ export default function Home() {
       {/* Discover categories */}
       <SectionHead title="Descubre música" to="/explore" />
       <div style={s.catGrid}>
-        <CatCard to="/explore" label="Top 50 del País" bgImg="/flag-ge.png" />
-        <CatCard to="/explore" icon="🔥" label="Nuevos Lanzamientos" tint="linear-gradient(135deg,#ec1c2b,#7a0f16)" />
-        <CatCard to="/explore" icon="📈" label="Tendencias" tint="linear-gradient(135deg,#ff3a46,#3a0a0e)" />
-        <CatCard to={user ? '/playlists' : '/login'} icon="❤️" label="Para ti" tint="linear-gradient(135deg,#e8202a,#2a0709)" />
+        <CatCard to="/explore" label="Top 50 del País" bgImg="/flag-ge.png" delay={0} />
+        <CatCard to="/explore" icon="🔥" label="Nuevos Lanzamientos" tint="linear-gradient(135deg,#ec1c2b,#7a0f16)" delay={60} />
+        <CatCard to="/explore" icon="📈" label="Tendencias" tint="linear-gradient(135deg,#ff3a46,#3a0a0e)" delay={120} />
+        <CatCard to={user ? '/playlists' : '/login'} icon="❤️" label="Para ti" tint="linear-gradient(135deg,#e8202a,#2a0709)" delay={180} />
       </div>
 
       {loading ? (
@@ -98,7 +129,7 @@ function CategoryTabs() {
   return (
     <div style={s.tabsRow}>
       {cats.map(c => (
-        <Link key={c.label} to={c.to} style={{ ...s.tab, ...(c.active ? s.tabActive : {}) }}>
+        <Link key={c.label} to={c.to} className="eg-press" style={{ ...s.tab, ...(c.active ? s.tabActive : {}) }}>
           {c.icon}<span>{c.label}</span>
         </Link>
       ))}
@@ -135,14 +166,14 @@ function Hero() {
     <div style={{ ...s.heroWrap, ...(isMobile ? {} : { maxWidth:900, marginLeft:'auto', marginRight:'auto' }) }}>
       <div style={{ ...s.heroTrack, transform:`translateX(-${i*100}%)`, transition: reduce ? 'none' : 'transform .7s cubic-bezier(.7,0,.2,1)' }}>
         {HERO_SLIDES.map((sl, k) => (
-          <button key={k} onClick={() => navigate(sl.to)} style={s.heroSlide} aria-label={sl.alt}>
+          <button key={k} onClick={() => navigate(sl.to)} className="eg-press" style={s.heroSlide} aria-label={sl.alt}>
             <img src={sl.img} alt={sl.alt} style={imgStyle} draggable="false" />
           </button>
         ))}
       </div>
       <div style={s.dots}>
         {HERO_SLIDES.map((_, k) => (
-          <span key={k} onClick={() => setI(k)} style={{ ...s.dot, ...(k===i ? s.dotOn : {}), cursor:'pointer' }} />
+          <span key={k} onClick={() => setI(k)} className="eg-dot-t" style={{ ...s.dot, ...(k===i ? s.dotOn : {}), cursor:'pointer' }} />
         ))}
       </div>
     </div>
@@ -153,15 +184,16 @@ function SectionHead({ title, to }) {
   return (
     <div style={s.secHead}>
       <h2 style={s.secTitle}>{title}</h2>
-      {to && <Link to={to} style={s.verTodo}>Ver todo ›</Link>}
+      {to && <Link to={to} className="eg-press eg-link" style={s.verTodo}>Ver todo ›</Link>}
     </div>
   )
 }
 
-function CatCard({ to, icon, label, tint, bgImg }) {
+function CatCard({ to, icon, label, tint, bgImg, delay = 0 }) {
+  const rise = { animationDelay: `${delay}ms` }
   if (bgImg) {
     return (
-      <Link to={to} style={{ ...s.catCard, justifyContent:'flex-end' }}>
+      <Link to={to} className="eg-card eg-rise" style={{ ...s.catCard, justifyContent:'flex-end', ...rise }}>
         <img src={bgImg} alt="" style={s.catBg} />
         <div style={s.catBgOverlay} />
         <div style={{ ...s.catLabel, position:'relative', zIndex:1 }}>{label}</div>
@@ -169,7 +201,7 @@ function CatCard({ to, icon, label, tint, bgImg }) {
     )
   }
   return (
-    <Link to={to} style={s.catCard}>
+    <Link to={to} className="eg-card eg-rise" style={{ ...s.catCard, ...rise }}>
       <div style={{ ...s.catIcon, background:tint }}>{icon}</div>
       <div style={s.catLabel}>{label}</div>
     </Link>
@@ -183,7 +215,7 @@ function TopRow({ track, rank, queue }) {
     ? track.artists.map(a => a.display_name || a.username).join(', ')
     : (track.artist || track.display_name || track.username)
   return (
-    <div style={s.topRow}>
+    <div className="eg-row eg-rise" style={{ ...s.topRow, animationDelay: `${Math.min(rank - 1, 10) * 40}ms` }}>
       <span style={{ ...s.rank, color: rank <= 3 ? 'var(--accent)' : 'var(--text3)' }}>{rank}</span>
       <img src={trackCoverUrl(track.id)} alt="" style={s.topCover} onError={e => { e.target.style.visibility='hidden' }} />
       <div style={{ minWidth:0, flex:1 }}>
@@ -191,7 +223,7 @@ function TopRow({ track, rank, queue }) {
         <div style={s.topArtist}>{artist}</div>
       </div>
       <span style={s.plays}>{track.play_count} <IcoBars/></span>
-      <button style={s.topPlay} onClick={() => play(track, queue)} aria-label="Reproducir">
+      <button className="eg-press" style={s.topPlay} onClick={() => play(track, queue)} aria-label="Reproducir">
         {isCurrent && isPlaying ? <IcoPause/> : <IcoPlay/>}
       </button>
     </div>
@@ -200,7 +232,7 @@ function TopRow({ track, rank, queue }) {
 
 function FollowingToggle({ tab, setTab }) {
   return (
-    <button onClick={() => setTab(tab === 'following' ? 'all' : 'following')} style={s.followingBtn}>
+    <button onClick={() => setTab(tab === 'following' ? 'all' : 'following')} className="eg-press" style={s.followingBtn}>
       {tab === 'following' ? '← Ver todo' : 'Ver solo de quienes sigues'}
     </button>
   )
