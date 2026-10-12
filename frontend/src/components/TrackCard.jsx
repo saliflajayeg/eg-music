@@ -70,11 +70,11 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
   const badge = fmt(track.duration) || (isVideo ? 'video' : '')
 
   return (
-    <div style={s.card} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div className="eg-tile" style={s.card} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       {/* Thumbnail */}
-      <div style={s.thumb} onClick={handlePlay}>
+      <div className="eg-thumb" style={s.thumb} onClick={handlePlay}>
         {track.cover && !err ? (
-          <img src={trackCoverUrl(track.id)} onError={() => setErr(true)} style={s.thumbImg} alt="" />
+          <img src={trackCoverUrl(track.id)} onError={() => setErr(true)} style={s.thumbImg} alt={`Portada de ${track.title}`} />
         ) : (
           <div style={s.thumbPh}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--text3)">
@@ -85,7 +85,9 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
           </div>
         )}
         <div style={{ ...s.overlay, opacity: hover || isActive ? 1 : 0 }}>
-          <div style={s.playCircle}>{isActive && isPlaying ? <IcoPause /> : <IcoPlay />}</div>
+          <div style={{ ...s.playCircle, transform: (hover || isActive) ? 'scale(1)' : 'scale(.8)' }}>
+            {isActive && isPlaying ? <IcoPause /> : <IcoPlay />}
+          </div>
         </div>
         {badge && <span style={s.badge}>{badge}</span>}
         {isScheduled && <span style={s.schedBadge}>⏳ Programada</span>}
@@ -108,25 +110,25 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
           {track.genre && <><span style={s.dot}>·</span><span>{track.genre}</span></>}
         </div>
         <div style={s.actions}>
-          <button onClick={handleLike} style={{ ...s.actBtn, color: liked ? 'var(--danger)' : 'var(--text3)' }} title="Me gusta">
+          <button onClick={handleLike} className="eg-press" style={{ ...s.actBtn, color: liked ? 'var(--danger)' : 'var(--text3)' }} title="Me gusta">
             {liked ? '♥' : '♡'} {likeCount > 0 ? likeCount : ''}
           </button>
-          <button onClick={handleShare} style={s.actBtn} title="Compartir"><IcoShare /></button>
+          <button onClick={handleShare} className="eg-press" style={s.actBtn} title="Compartir"><IcoShare /></button>
           <button onClick={(e) => { e.stopPropagation(); addToQueue(track); setQueued(true); setTimeout(() => setQueued(false), 1500) }}
-            style={{ ...s.actBtn, color: queued ? 'var(--accent)' : 'var(--text3)' }} title="Añadir a la cola">
+            className="eg-press" style={{ ...s.actBtn, color: queued ? 'var(--accent)' : 'var(--text3)' }} title="Añadir a la cola">
             {queued ? '✓' : <IcoQueue />}
           </button>
           <AddToPlaylist trackId={track.id} compact />
           {onRemove && (
-            <button onClick={(e) => { e.stopPropagation(); onRemove(track.id) }} style={s.actBtn} title="Quitar de la lista">Quitar</button>
+            <button onClick={(e) => { e.stopPropagation(); onRemove(track.id) }} className="eg-press" style={s.actBtn} title="Quitar de la lista">Quitar</button>
           )}
           {isNative() && (
-            <button onClick={handleDownload} style={s.actBtn} title={dl === 'done' ? 'Descargado' : 'Descargar'}>
+            <button onClick={handleDownload} className="eg-press" style={s.actBtn} title={dl === 'done' ? 'Descargado' : 'Descargar'}>
               {dl === 'busy' ? '⏳' : dl === 'done' ? <span style={{ color:'var(--accent2)' }}>✓</span> : '⬇'}
             </button>
           )}
           {user && (user.id === track.user_id || user.is_admin) && (
-            <button onClick={handleDelete} style={{ ...s.actBtn, marginLeft:'auto' }} title="Eliminar">✕</button>
+            <button onClick={handleDelete} className="eg-press" style={{ ...s.actBtn, marginLeft:'auto' }} title="Eliminar">✕</button>
           )}
         </div>
       </div>
@@ -159,8 +161,10 @@ const s = {
     display:'flex', alignItems:'center', justifyContent:'center', transition:'opacity .15s',
   },
   playCircle: {
-    width:52, height:52, borderRadius:'50%', background:'rgba(0,0,0,.55)',
-    display:'flex', alignItems:'center', justifyContent:'center',
+    width:54, height:54, borderRadius:'50%', background:'var(--accent)',
+    display:'flex', alignItems:'center', justifyContent:'center', paddingLeft:2,
+    boxShadow:'0 8px 22px -6px rgba(var(--accent-rgb),.8)',
+    transition:'transform 200ms var(--ease-out)',
   },
   badge: {
     position:'absolute', right:6, bottom:6, background:'rgba(0,0,0,.8)', color:'#fff',

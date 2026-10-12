@@ -81,6 +81,36 @@ p { text-wrap: pretty; }
 
 ::selection { background: rgba(var(--accent-rgb), .30); color: #fff; }
 
+/* ── Shared interaction system (used across the app via className) ──────────
+   Press feedback, card hover-lift, row highlight, the carousel dot morph and a
+   staggered entrance. GPU-only properties, reduced-motion aware. */
+.eg-press { transition: transform 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+.eg-press:active { transform: scale(.97); }
+.eg-card { transition: transform 220ms var(--ease-out), border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out); }
+.eg-card:active { transform: scale(.98); }
+.eg-row { transition: background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.eg-row:active { transform: scale(.993); }
+.eg-dot-t { transition: width 260ms var(--ease-out), background-color 260ms var(--ease-out); }
+.eg-link { transition: opacity 140ms var(--ease-out); }
+/* Streaming-style media tile: the cover zooms gently under the pointer. */
+.eg-thumb { overflow: hidden; }
+.eg-thumb img { transition: transform 460ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .eg-card:hover { transform: translateY(-3px); border-color: rgba(var(--accent-rgb), .5); box-shadow: 0 14px 32px -16px rgba(0,0,0,.75); }
+  .eg-row:hover { background-color: var(--bg3); }
+  .eg-link:hover { opacity: .7; }
+  .eg-thumb:hover img { transform: scale(1.06); }
+  .eg-tile:hover { transform: translateY(-4px); }
+}
+.eg-tile { transition: transform 240ms var(--ease-out); }
+@keyframes egRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.eg-rise { animation: egRise 440ms var(--ease-out) backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .eg-press, .eg-card, .eg-row, .eg-dot-t, .eg-link, .eg-tile, .eg-thumb img { transition: none; }
+  .eg-press:active, .eg-card:active, .eg-card:hover, .eg-row:active, .eg-tile:hover, .eg-thumb:hover img { transform: none; }
+  .eg-rise { animation: none; }
+}
+
 /* Never let content bleed sideways — the app scrolls vertically only. */
 img, video, pre { max-width: 100%; }
 

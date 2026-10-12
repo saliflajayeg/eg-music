@@ -8,6 +8,8 @@ import { avatarUrl, pendingCollabs, getNotifications, markNotificationsRead, apk
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const onExplore = location.pathname.startsWith('/explore')
   const [menuOpen, setMenuOpen] = useState(false)
   const [collabCount, setCollabCount] = useState(0)
   const isMobile = useIsMobile()
@@ -31,14 +33,14 @@ export default function Navbar() {
           style={{...s.logoImg, height: isMobile ? 22 : 26}} />
         <span style={s.tagline}>MÁS QUE MÚSICA</span>
       </Link>
-      {!isMobile && <Link to="/explore" style={s.exploreLink}>Explorar</Link>}
+      {!isMobile && <Link to="/explore" className="eg-press" style={{ ...s.exploreLink, ...(onExplore ? s.exploreLinkActive : {}) }}>Explorar</Link>}
     </div>
   )
 
   const right = (
     <div style={s.right}>
       {!isNative() && (
-        <a href={apkUrl()} download style={s.appBtn} title="Descargar la app de Android">
+        <a href={apkUrl()} download className="eg-press" style={s.appBtn} title="Descargar la app de Android">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>
           </svg>
@@ -48,7 +50,7 @@ export default function Navbar() {
       {user ? (
         <>
           {user.can_upload && (
-            <Link to="/upload" style={s.uploadBtn}>+ Subir</Link>
+            <Link to="/upload" className="eg-press" style={s.uploadBtn}>+ Subir</Link>
           )}
           <NotifBell />
           <div style={s.avatarWrap} onClick={() => setMenuOpen(m => !m)}>
@@ -91,8 +93,8 @@ export default function Navbar() {
         </>
       ) : (
         <>
-          <Link to="/login"    style={s.loginBtn}>{isMobile ? 'Entrar' : 'Iniciar sesión'}</Link>
-          <Link to="/register" style={s.registerBtn}>Registrarse</Link>
+          <Link to="/login"    className="eg-press" style={s.loginBtn}>{isMobile ? 'Entrar' : 'Iniciar sesión'}</Link>
+          <Link to="/register" className="eg-press" style={s.registerBtn}>Registrarse</Link>
         </>
       )}
     </div>
@@ -245,13 +247,15 @@ const s = {
   nav: {
     display:'flex', alignItems:'center', gap:12,
     padding:'0 20px', height:58,
-    background:'var(--bg2)', borderBottom:'1px solid var(--border)',
+    background:'rgba(23,16,15,.72)', backdropFilter:'blur(14px) saturate(1.4)', WebkitBackdropFilter:'blur(14px) saturate(1.4)',
+    borderBottom:'1px solid var(--border)',
     position:'sticky', top:0, zIndex:100,
   },
   navMobile: {
     display:'flex', flexDirection:'column', gap:8,
     padding:'8px 12px',
-    background:'var(--bg2)', borderBottom:'1px solid var(--border)',
+    background:'rgba(23,16,15,.8)', backdropFilter:'blur(14px) saturate(1.4)', WebkitBackdropFilter:'blur(14px) saturate(1.4)',
+    borderBottom:'1px solid var(--border)',
     position:'sticky', top:0, zIndex:100,
   },
   navTopRow: {
@@ -264,6 +268,7 @@ const s = {
     color:'var(--text2)', fontWeight:600, fontSize:13,
     padding:'6px 10px', borderRadius:7, transition:'all .15s', whiteSpace:'nowrap',
   },
+  exploreLinkActive: { color:'#fff', background:'rgba(var(--accent-rgb),.16)' },
   searchForm: {
     flex:1, maxWidth:380,
     display:'flex', alignItems:'center', gap:8,

@@ -6,37 +6,6 @@ import { useIsMobile } from '../hooks'
 import { useMedia } from '../context/MediaContext'
 import TrackCard from '../components/TrackCard'
 
-// Interaction polish injected once: press feedback, card hover-lift, the dot
-// morph and a staggered entrance — all off the main thread and reduced-motion
-// aware. Inline styles stay for layout; these classes add the motion.
-if (typeof document !== 'undefined' && !document.getElementById('eg-home-css')) {
-  const st = document.createElement('style')
-  st.id = 'eg-home-css'
-  st.textContent = `
-  :root{ --ease-out: cubic-bezier(.23,1,.32,1); }
-  .eg-press{ transition: transform 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
-  .eg-press:active{ transform: scale(.97); }
-  .eg-card{ transition: transform 220ms var(--ease-out), border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out); }
-  .eg-card:active{ transform: scale(.98); }
-  .eg-row{ transition: background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
-  .eg-row:active{ transform: scale(.993); }
-  .eg-dot-t{ transition: width 260ms var(--ease-out), background-color 260ms var(--ease-out); }
-  .eg-link{ transition: opacity 140ms var(--ease-out); }
-  @media (hover:hover) and (pointer:fine){
-    .eg-card:hover{ transform: translateY(-3px); border-color: rgba(236,28,43,.5); box-shadow: 0 14px 32px -16px rgba(0,0,0,.75); }
-    .eg-row:hover{ background-color: var(--bg3); }
-    .eg-link:hover{ opacity:.7; }
-  }
-  @keyframes egRise{ from{ opacity:0; transform: translateY(10px); } to{ opacity:1; transform:none; } }
-  .eg-rise{ animation: egRise 440ms var(--ease-out) backwards; }
-  @media (prefers-reduced-motion: reduce){
-    .eg-press,.eg-card,.eg-row,.eg-dot-t,.eg-link{ transition:none; }
-    .eg-press:active,.eg-card:active,.eg-card:hover,.eg-row:active{ transform:none; }
-    .eg-rise{ animation:none; }
-  }`
-  document.head.appendChild(st)
-}
-
 export default function Home() {
   const { user } = useAuth()
   const isMobile = useIsMobile()
