@@ -40,10 +40,14 @@ export default function Home() {
       {/* Discover categories */}
       <SectionHead title="Descubre música" to="/explore" />
       <div style={s.catGrid}>
-        <CatCard to="/explore" label="Top 50 del País" bgImg="/flag-ge.png" delay={0} />
-        <CatCard to="/explore" icon="🔥" label="Nuevos Lanzamientos" tint="linear-gradient(135deg,#ec1c2b,#7a0f16)" delay={60} />
-        <CatCard to="/explore" icon="📈" label="Tendencias" tint="linear-gradient(135deg,#ff3a46,#3a0a0e)" delay={120} />
-        <CatCard to={user ? '/playlists' : '/login'} icon="❤️" label="Para ti" tint="linear-gradient(135deg,#e8202a,#2a0709)" delay={180} />
+        <CatCard to="/explore" label="Top 50 del País" chip="Nacional"
+          img="/city/libertad.jpg" pos="center 32%" alt="Torre de la Libertad, Bata" delay={0} />
+        <CatCard to="/explore" label="Nuevos Lanzamientos" chip="Nuevo"
+          img="/city/malabo.jpg" pos="center" alt="Malabo II, capital de Guinea Ecuatorial" delay={60} />
+        <CatCard to="/explore" label="Tendencias" chip="En tendencia"
+          img="/city/gepetrol.jpg" pos="center 38%" alt="Torre GEPetrol, Malabo" delay={120} />
+        <CatCard to={user ? '/playlists' : '/login'} label="Para ti" chip="Para ti"
+          img="/city/bata.jpg" pos="center" alt="Ciudad de Bata junto al mar" delay={180} />
       </div>
 
       {loading ? (
@@ -158,21 +162,16 @@ function SectionHead({ title, to }) {
   )
 }
 
-function CatCard({ to, icon, label, tint, bgImg, delay = 0 }) {
-  const rise = { animationDelay: `${delay}ms` }
-  if (bgImg) {
-    return (
-      <Link to={to} className="eg-card eg-rise" style={{ ...s.catCard, justifyContent:'flex-end', ...rise }}>
-        <img src={bgImg} alt="" style={s.catBg} />
-        <div style={s.catBgOverlay} />
-        <div style={{ ...s.catLabel, position:'relative', zIndex:1 }}>{label}</div>
-      </Link>
-    )
-  }
+function CatCard({ to, label, chip, img, pos = 'center', alt = '', delay = 0 }) {
   return (
-    <Link to={to} className="eg-card eg-rise" style={{ ...s.catCard, ...rise }}>
-      <div style={{ ...s.catIcon, background:tint }}>{icon}</div>
-      <div style={s.catLabel}>{label}</div>
+    <Link to={to} className="eg-card eg-rise eg-thumb" style={{ ...s.catCard, animationDelay: `${delay}ms` }}>
+      <img src={img} alt={alt} style={{ ...s.catBg, objectPosition: pos }} />
+      <div style={s.catScrim} />
+      {chip && <span style={s.catChip}><span style={s.catDot} />{chip}</span>}
+      <div style={s.catLabelWrap}>
+        <div style={s.catTitle}>{label}</div>
+        <div style={s.catUnderline} />
+      </div>
     </Link>
   )
 }
@@ -238,16 +237,23 @@ const s = {
   secTitle: { fontFamily:'var(--font-display)', fontSize:20, fontWeight:800, letterSpacing:'-.01em' },
   verTodo: { fontSize:13, fontWeight:700, color:'var(--accent)', flexShrink:0 },
 
-  catGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(150px,1fr))', gap:12, marginBottom:26 },
+  catGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px,1fr))', gap:14, marginBottom:28 },
   catCard: {
-    position:'relative', overflow:'hidden',
-    display:'flex', flexDirection:'column', gap:10, padding:14,
-    background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:14, minHeight:96, justifyContent:'space-between',
+    position:'relative', overflow:'hidden', display:'block',
+    height:150, borderRadius:16, background:'#17100f', border:'1px solid rgba(255,255,255,.06)',
   },
-  catBg: { position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter:'blur(6px) saturate(1.15)', transform:'scale(1.25)', zIndex:0 },
-  catBgOverlay: { position:'absolute', inset:0, background:'linear-gradient(180deg, rgba(10,6,7,.15), rgba(10,6,7,.7))', zIndex:0 },
-  catIcon: { width:40, height:40, borderRadius:11, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 },
-  catLabel: { fontSize:13.5, fontWeight:700, color:'var(--text)', lineHeight:1.25 },
+  catBg: { position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', display:'block' },
+  catScrim: { position:'absolute', inset:0, background:'linear-gradient(to top, rgba(8,5,6,.94) 0%, rgba(8,5,6,.55) 42%, rgba(8,5,6,.06) 100%)' },
+  catChip: {
+    position:'absolute', top:10, left:10, zIndex:2, display:'flex', alignItems:'center', gap:5,
+    background:'rgba(0,0,0,.42)', backdropFilter:'blur(6px)', WebkitBackdropFilter:'blur(6px)',
+    color:'#fff', fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase',
+    padding:'4px 9px', borderRadius:20, border:'1px solid rgba(255,255,255,.14)',
+  },
+  catDot: { width:6, height:6, borderRadius:'50%', background:'var(--accent)', boxShadow:'0 0 8px rgba(236,28,43,.9)' },
+  catLabelWrap: { position:'absolute', left:14, right:14, bottom:12, zIndex:2 },
+  catTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:18, lineHeight:1.08, letterSpacing:'-.01em', color:'#fff', textShadow:'0 2px 10px rgba(0,0,0,.6)' },
+  catUnderline: { width:26, height:3, borderRadius:3, background:'var(--accent)', marginTop:8 },
 
   grid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px,1fr))', gap:'20px 16px' },
 
