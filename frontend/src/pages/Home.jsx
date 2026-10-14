@@ -12,6 +12,7 @@ export default function Home() {
   const [tab,    setTab]    = useState('all')
   const [tracks, setTracks] = useState([])
   const [top,    setTop]    = useState([])
+  const [fresh,  setFresh]  = useState([])   // newest uploads, for the carousel
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { load() }, [tab])
@@ -19,12 +20,12 @@ export default function Home() {
   async function load() {
     setLoading(true)
     try {
-      if (tab === 'following' && user) {
-        setTracks(await getFollowingFeed()); setTop([])
-      } else {
-        const [feed, tops] = await Promise.all([getFeed(0, 100, 'random'), getTopTracks(10)])
-        setTracks(feed); setTop(tops)
-      }
+      const [feed, tops, recent] = await Promise.all([
+        tab === 'following' && user ? getFollowingFeed() : getFeed(0, 100, 'random'),
+        getTopTracks(10),
+        getFeed(0, 10, 'recent'),
+      ])
+      setTracks(feed); setTop(tops); setFresh(recent)
     } catch {}
     setLoading(false)
   }
@@ -35,10 +36,7 @@ export default function Home() {
     <div style={{ padding: isMobile ? '10px 14px 20px' : '18px 28px 28px' }}>
       <CategoryTabs />
 
-      {(() => {
-        const featured = top.find(t => t.cover) || top[0] || tracks.find(t => t.cover) || tracks[0]
-        return <FeaturedHero track={featured} rank1={!!featured && featured === top[0]} queue={top.length ? top : tracks} loading={loading} />
-      })()}
+      <HeroCarousel top={top} fresh={fresh} loading={loading} />
 
       {/* Discover categories */}
       <SectionHead title="Descubre música" to="/explore" />
@@ -63,7 +61,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          {top.length > 0 && (
+          {tab !== 'following' && top.length > 0 && (
             <section style={{ marginTop:26 }}>
               <SectionHead title="🔥 Top 10 más escuchadas" to="/explore" />
               <div style={s.topList}>
@@ -113,15 +111,53 @@ function CategoryTabs() {
   )
 }
 
-// Cinematic "featured" hero: the #1 track of the country, its cover blurred as
-// a backdrop with the crisp art alongside and a play button that really plays.
-function FeaturedHero({ track, rank1, queue, loading }) {
+// A cinematic, auto-advancing carousel of spotlights: the country's Top 3, the
+// newest release, and the December beatmakers event (with 240 Beats).
+function HeroCarousel({ top, fresh, loading }) {
+  const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  const top3 = top.slice(0, 3)
+  const top3ids = new Set(top3.map(t => t.id))
+  const newRelease = fresh.find(t => t.cover && !top3ids.has(t.id)) || fresh.find(t => !top3ids.has(t.id))
+  const slides = [
+    ...top3.map((t, i) => ({ key: 'top' + t.id, el: <TrackSlide track={t} rank={i + 1} queue={top} /> })),
+    ...(newRelease ? [{ key: 'new' + newRelease.id, el: <TrackSlide track={newRelease} kind="new" queue={fresh} /> }] : []),
+    { key: 'event', el: <EventSlide /> },
+  ]
+
+  const [i, setI] = useState(0)
+  useEffect(() => { setI(v => (v < slides.length ? v : 0)) }, [slides.length])
+  useEffect(() => {
+    if (reduce || slides.length <= 1) return
+    const t = setInterval(() => setI(k => (k + 1) % slides.length), 6500)
+    return () => clearInterval(t)
+  }, [slides.length, reduce])
+
+  if (loading && top.length === 0 && fresh.length === 0) return <div className="eg-shimmer" style={s.carWrap} aria-hidden="true" />
+
+  return (
+    <div style={s.carWrap} aria-roledescription="carrusel" aria-label="Destacados">
+      <div style={{ ...s.carTrack, transform: `translateX(-${i * 100}%)`, transition: reduce ? 'none' : 'transform .6s cubic-bezier(.4,0,.2,1)' }}>
+        {slides.map(sl => <div key={sl.key} style={s.carSlide}>{sl.el}</div>)}
+      </div>
+      {slides.length > 1 && (
+        <div style={s.carDots}>
+          {slides.map((_, k) => (
+            <button key={k} onClick={() => setI(k)} className="eg-dot-t"
+              style={{ ...s.carDot, ...(k === i ? s.carDotOn : {}) }} aria-label={`Ir al destacado ${k + 1}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One spotlight slide for a track — plays it on click.
+function TrackSlide({ track, rank, kind, queue }) {
   const { play, current, isPlaying } = useMedia()
   const isMobile = useIsMobile()
   const [imgErr, setImgErr] = useState(false)
-  useEffect(() => { setImgErr(false) }, [track?.id])
-
-  if (!track) return loading ? <div className="eg-shimmer" style={s.featWrap} aria-hidden="true" /> : null
+  useEffect(() => { setImgErr(false) }, [track.id])
 
   const isCur = current?.id === track.id
   const playing = isCur && isPlaying
@@ -130,16 +166,16 @@ function FeaturedHero({ track, rank1, queue, loading }) {
     ? track.artists.map(a => a.display_name || a.username).join(', ')
     : (track.artist || track.display_name || track.username)
   const cover = trackCoverUrl(track.id)
-
   const hasCover = !!track.cover && !imgErr
+  const eyebrow = kind === 'new' ? 'Nuevo lanzamiento' : `Nº ${rank} del país`
 
   return (
-    <section style={s.featWrap} aria-label="Destacado">
+    <>
       {hasCover && <img src={cover} alt="" aria-hidden="true" style={s.featBg} />}
       <div style={s.featScrim} />
       <div style={s.featInner}>
         <div style={s.featText}>
-          <span style={s.featEyebrow}><span style={s.featEyeDot} />{rank1 ? 'Nº 1 del país' : 'Destacado'}</span>
+          <span style={s.featEyebrow}><span style={s.featEyeDot} />{eyebrow}</span>
           <h2 style={s.featTitle}>{track.title}</h2>
           <div style={s.featArtist}>{artist}</div>
           <div style={s.featActions}>
@@ -158,7 +194,39 @@ function FeaturedHero({ track, rank1, queue, loading }) {
           </div>
         )}
       </div>
-    </section>
+    </>
+  )
+}
+
+// The beatmakers-event slide — registration opens WhatsApp with a ready message.
+const EVENT_WA = 'https://wa.me/240555901453?text=' +
+  encodeURIComponent('Hola, quiero registrarme para el evento de beatmakers del país (240 Beats · EG Music).')
+
+function EventSlide() {
+  const isMobile = useIsMobile()
+  return (
+    <>
+      <div style={s.evScrim} />
+      <div style={s.featInner}>
+        <div style={s.featText}>
+          <span style={s.evBadge}>240 Beats · Evento</span>
+          <h2 style={s.featTitle}>Evento de beatmakers del país</h2>
+          <div style={s.evSub}>Productores y cantantes de Guinea Ecuatorial: compite en el primer encuentro nacional de beatmakers, con 240 Beats.</div>
+          <div style={s.featActions}>
+            <a href={EVENT_WA} target="_blank" rel="noopener noreferrer" className="eg-press" style={s.featPlay}>
+              <IcoSpark /><span>Regístrate</span>
+            </a>
+            <span style={s.evWhen}>Diciembre 2026</span>
+          </div>
+        </div>
+        {!isMobile && (
+          <div style={s.evArt} aria-hidden="true">
+            <span style={s.evArtNum}>240</span>
+            <span style={s.evArtWord}>Beats</span>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -244,6 +312,7 @@ const IcoPause = () => <svg width="17" height="17" viewBox="0 0 24 24" fill="cur
 const IcoBars = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{verticalAlign:'-1px'}}><rect x="3" y="10" width="3" height="11" rx="1"/><rect x="9" y="6" width="3" height="15" rx="1"/><rect x="15" y="13" width="3" height="8" rx="1"/><rect x="20" y="3" width="3" height="18" rx="1" opacity=".5"/></svg>
 const IcoNoteBig = () => <svg width="44" height="44" viewBox="0 0 24 24" fill="var(--text3)"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
 const IcoVideoBig = () => <svg width="46" height="46" viewBox="0 0 24 24" fill="var(--text3)"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+const IcoSpark = () => <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.3L21 10l-6.8 1.7L12 18l-2.2-6.3L3 10l6.8-1.7z"/></svg>
 
 const s = {
   tabsRow: { display:'flex', gap:8, overflowX:'auto', paddingBottom:6, marginBottom:14, scrollbarWidth:'none' },
@@ -254,9 +323,15 @@ const s = {
   },
   tabActive: { background:'var(--accent)', color:'#fff', border:'1px solid var(--accent)' },
 
-  featWrap: { position:'relative', overflow:'hidden', borderRadius:20, marginBottom:26,
+  carWrap: { position:'relative', overflow:'hidden', borderRadius:20, marginBottom:26,
     background:'linear-gradient(120deg, #241012 0%, #150c0c 58%, #0e0809 100%)',
     minHeight:'clamp(188px, 32vw, 280px)' },
+  carTrack: { display:'flex', minHeight:'inherit' },
+  carSlide: { minWidth:'100%', position:'relative', minHeight:'clamp(188px, 32vw, 280px)', overflow:'hidden' },
+  carDots: { position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:12, zIndex:3, display:'flex', gap:6,
+    background:'rgba(0,0,0,.34)', padding:'6px 10px', borderRadius:14, backdropFilter:'blur(4px)', WebkitBackdropFilter:'blur(4px)' },
+  carDot: { width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,.34)', border:'none', padding:0, cursor:'pointer' },
+  carDotOn: { width:18, background:'var(--accent)' },
   featBg: { position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover',
     filter:'blur(34px) saturate(1.35) brightness(.95)', transform:'scale(1.18)', opacity:.42 },
   featScrim: { position:'absolute', inset:0, background:
@@ -286,6 +361,24 @@ const s = {
     boxShadow:'0 24px 54px -18px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.05) inset' },
   featCover: { width:'100%', height:'100%', objectFit:'cover', display:'block', background:'var(--bg3)' },
   featCoverPh: { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg3)' },
+
+  // Event slide
+  evScrim: { position:'absolute', inset:0, background:
+    'linear-gradient(90deg, rgba(10,6,7,.92) 0%, rgba(10,6,7,.6) 52%, rgba(10,6,7,.35) 100%),'
+    + 'radial-gradient(700px 480px at 80% 60%, rgba(236,28,43,.4), transparent 72%),'
+    + 'radial-gradient(420px 320px at 12% 130%, rgba(242,183,5,.14), transparent 72%)' },
+  evBadge: { display:'inline-flex', alignItems:'center', alignSelf:'flex-start', gap:6, fontSize:11, fontWeight:800,
+    letterSpacing:'.1em', textTransform:'uppercase', color:'#fff', background:'rgba(236,28,43,.22)',
+    border:'1px solid rgba(236,28,43,.5)', padding:'5px 11px', borderRadius:20 },
+  evWhen: { fontSize:13, fontWeight:700, color:'var(--text2)', letterSpacing:'.02em' },
+  evSub: { fontSize:'clamp(13px, 2.4vw, 15px)', fontWeight:500, color:'var(--text2)', marginTop:8, maxWidth:430,
+    lineHeight:1.42, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' },
+  evArt: { width:'clamp(150px, 17vw, 196px)', aspectRatio:'1 / 1', flexShrink:0, borderRadius:16,
+    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+    background:'linear-gradient(140deg, #ec1c2b 0%, #7a0f16 70%, #2a0709 100%)',
+    border:'1px solid rgba(255,255,255,.14)', boxShadow:'0 24px 54px -18px rgba(236,28,43,.6)' },
+  evArtNum: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(44px, 6vw, 60px)', lineHeight:1, color:'#fff', letterSpacing:'-.02em' },
+  evArtWord: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(15px, 2vw, 19px)', letterSpacing:'.42em', color:'#fff', marginTop:4, paddingLeft:'.42em' },
 
   secHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, marginTop:6 },
   secTitle: { fontFamily:'var(--font-display)', fontSize:20, fontWeight:800, letterSpacing:'-.01em' },
