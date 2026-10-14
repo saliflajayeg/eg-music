@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { getFeed, getFollowingFeed, getTopTracks, trackCoverUrl } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { useIsMobile } from '../hooks'
@@ -35,7 +35,10 @@ export default function Home() {
     <div style={{ padding: isMobile ? '10px 14px 20px' : '18px 28px 28px' }}>
       <CategoryTabs />
 
-      <Hero />
+      {(() => {
+        const featured = top.find(t => t.cover) || top[0] || tracks.find(t => t.cover) || tracks[0]
+        return <FeaturedHero track={featured} rank1={!!featured && featured === top[0]} queue={top.length ? top : tracks} loading={loading} />
+      })()}
 
       {/* Discover categories */}
       <SectionHead title="Descubre música" to="/explore" />
@@ -51,7 +54,7 @@ export default function Home() {
       </div>
 
       {loading ? (
-        <p style={{ color:'var(--text3)', marginTop:40, textAlign:'center' }}>Cargando…</p>
+        <SkeletonGrid />
       ) : tracks.length === 0 && top.length === 0 ? (
         <div style={s.empty}>
           <p style={{ fontSize:16, marginBottom:8 }}>
@@ -110,46 +113,70 @@ function CategoryTabs() {
   )
 }
 
-const HERO_SLIDES = [
-  { img:'/hero/1.jpg', to:'/register', alt:'EG Music — Más que música. Únete gratis.' },
-  { img:'/hero/2.jpg', to:'/explore',  alt:'Tu música sin límites. Explora ahora.' },
-  { img:'/hero/3.jpg', to:'/upload',   alt:'Gana con tus streams. Sube tu música.' },
-]
-
-function Hero() {
-  const navigate = useNavigate()
+// Cinematic "featured" hero: the #1 track of the country, its cover blurred as
+// a backdrop with the crisp art alongside and a play button that really plays.
+function FeaturedHero({ track, rank1, queue, loading }) {
+  const { play, current, isPlaying } = useMedia()
   const isMobile = useIsMobile()
-  const [i, setI] = useState(0)
-  const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const [imgErr, setImgErr] = useState(false)
+  useEffect(() => { setImgErr(false) }, [track?.id])
 
-  // Auto-advance every 5s (paused when reduced motion is on).
-  useEffect(() => {
-    if (reduce) return
-    const t = setInterval(() => setI(k => (k + 1) % HERO_SLIDES.length), 5000)
-    return () => clearInterval(t)
-  }, [reduce])
+  if (!track) return loading ? <div className="eg-shimmer" style={s.featWrap} aria-hidden="true" /> : null
 
-  // Wide banners: cap the width on desktop so they stay compact; on phones,
-  // crop toward the left (logo + headline + button) so the text reads big.
-  const imgStyle = isMobile
-    ? { ...s.heroImg, height:215, objectFit:'cover', objectPosition:'left center' }
-    : s.heroImg
+  const isCur = current?.id === track.id
+  const playing = isCur && isPlaying
+  const isVideo = track.media_type === 'video'
+  const artist = track.artists?.length
+    ? track.artists.map(a => a.display_name || a.username).join(', ')
+    : (track.artist || track.display_name || track.username)
+  const cover = trackCoverUrl(track.id)
+
+  const hasCover = !!track.cover && !imgErr
 
   return (
-    <div style={{ ...s.heroWrap, ...(isMobile ? {} : { maxWidth:900, marginLeft:'auto', marginRight:'auto' }) }}>
-      <div style={{ ...s.heroTrack, transform:`translateX(-${i*100}%)`, transition: reduce ? 'none' : 'transform .7s cubic-bezier(.7,0,.2,1)' }}>
-        {HERO_SLIDES.map((sl, k) => (
-          <button key={k} onClick={() => navigate(sl.to)} className="eg-press" style={s.heroSlide} aria-label={sl.alt}>
-            <img src={sl.img} alt={sl.alt} style={imgStyle} draggable="false" />
-          </button>
+    <section style={s.featWrap} aria-label="Destacado">
+      {hasCover && <img src={cover} alt="" aria-hidden="true" style={s.featBg} />}
+      <div style={s.featScrim} />
+      <div style={s.featInner}>
+        <div style={s.featText}>
+          <span style={s.featEyebrow}><span style={s.featEyeDot} />{rank1 ? 'Nº 1 del país' : 'Destacado'}</span>
+          <h2 style={s.featTitle}>{track.title}</h2>
+          <div style={s.featArtist}>{artist}</div>
+          <div style={s.featActions}>
+            <button className="eg-press" style={s.featPlay} onClick={() => play(track, queue)}>
+              {playing ? <IcoPause /> : <IcoPlay />}
+              <span>{playing ? 'Reproduciendo' : isVideo ? 'Ver ahora' : 'Reproducir'}</span>
+            </button>
+            <Link to="/explore" className="eg-press" style={s.featGhost}>Explorar</Link>
+          </div>
+        </div>
+        {!isMobile && (
+          <div style={s.featCoverWrap}>
+            {hasCover
+              ? <img src={cover} alt={`Portada de ${track.title}`} style={s.featCover} onError={() => setImgErr(true)} />
+              : <div style={s.featCoverPh}>{isVideo ? <IcoVideoBig /> : <IcoNoteBig />}</div>}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// Skeleton shown while the feed loads — matches the card grid shape.
+function SkeletonGrid({ n = 8 }) {
+  return (
+    <section style={{ marginTop:28 }}>
+      <div className="eg-shimmer" style={{ width:170, height:22, borderRadius:7, marginBottom:16 }} />
+      <div style={s.grid}>
+        {Array.from({ length:n }).map((_, i) => (
+          <div key={i}>
+            <div className="eg-shimmer" style={{ aspectRatio:'16 / 9', borderRadius:12 }} />
+            <div className="eg-shimmer" style={{ height:13, width:'82%', borderRadius:5, marginTop:11 }} />
+            <div className="eg-shimmer" style={{ height:11, width:'55%', borderRadius:5, marginTop:8 }} />
+          </div>
         ))}
       </div>
-      <div style={s.dots}>
-        {HERO_SLIDES.map((_, k) => (
-          <span key={k} onClick={() => setI(k)} className="eg-dot-t" style={{ ...s.dot, ...(k===i ? s.dotOn : {}), cursor:'pointer' }} />
-        ))}
-      </div>
-    </div>
+    </section>
   )
 }
 
@@ -215,6 +242,8 @@ const IcoList = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none
 const IcoPlay = () => <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
 const IcoPause = () => <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
 const IcoBars = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{verticalAlign:'-1px'}}><rect x="3" y="10" width="3" height="11" rx="1"/><rect x="9" y="6" width="3" height="15" rx="1"/><rect x="15" y="13" width="3" height="8" rx="1"/><rect x="20" y="3" width="3" height="18" rx="1" opacity=".5"/></svg>
+const IcoNoteBig = () => <svg width="44" height="44" viewBox="0 0 24 24" fill="var(--text3)"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+const IcoVideoBig = () => <svg width="46" height="46" viewBox="0 0 24 24" fill="var(--text3)"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
 
 const s = {
   tabsRow: { display:'flex', gap:8, overflowX:'auto', paddingBottom:6, marginBottom:14, scrollbarWidth:'none' },
@@ -225,13 +254,38 @@ const s = {
   },
   tabActive: { background:'var(--accent)', color:'#fff', border:'1px solid var(--accent)' },
 
-  heroWrap: { position:'relative', overflow:'hidden', borderRadius:18, marginBottom:26, background:'#0d0708' },
-  heroTrack: { display:'flex', alignItems:'stretch' },
-  heroSlide: { minWidth:'100%', padding:0, border:'none', background:'none', cursor:'pointer', display:'block', lineHeight:0 },
-  heroImg: { width:'100%', height:'auto', display:'block', userSelect:'none' },
-  dots: { position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:10, display:'flex', gap:6, zIndex:2, background:'rgba(0,0,0,.35)', padding:'6px 10px', borderRadius:14, backdropFilter:'blur(4px)' },
-  dot: { width:6, height:6, borderRadius:'50%', background:'rgba(255,255,255,.3)' },
-  dotOn: { width:18, background:'var(--accent)' },
+  featWrap: { position:'relative', overflow:'hidden', borderRadius:20, marginBottom:26,
+    background:'linear-gradient(120deg, #241012 0%, #150c0c 58%, #0e0809 100%)',
+    minHeight:'clamp(188px, 32vw, 280px)' },
+  featBg: { position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover',
+    filter:'blur(34px) saturate(1.35) brightness(.95)', transform:'scale(1.18)', opacity:.42 },
+  featScrim: { position:'absolute', inset:0, background:
+    'linear-gradient(90deg, rgba(10,6,7,.92) 0%, rgba(10,6,7,.62) 50%, rgba(10,6,7,.28) 100%),'
+    + 'radial-gradient(640px 440px at 82% 58%, rgba(236,28,43,.34), transparent 72%),'
+    + 'radial-gradient(420px 300px at 16% 128%, rgba(236,28,43,.16), transparent 70%)' },
+  featInner: { position:'relative', zIndex:1, minHeight:'inherit', display:'flex', alignItems:'center',
+    justifyContent:'space-between', gap:'clamp(16px, 4vw, 40px)', padding:'clamp(18px, 4vw, 36px)' },
+  featText: { display:'flex', flexDirection:'column', minWidth:0, maxWidth:560 },
+  featEyebrow: { display:'inline-flex', alignItems:'center', gap:7, fontSize:11.5, fontWeight:700,
+    letterSpacing:'.14em', textTransform:'uppercase', color:'var(--accent2)' },
+  featEyeDot: { width:6, height:6, borderRadius:'50%', background:'var(--accent)', boxShadow:'0 0 8px rgba(236,28,43,.9)' },
+  featTitle: { fontFamily:'"Archivo Black", var(--font-display)', fontSize:'clamp(26px, 5.4vw, 44px)',
+    lineHeight:1.02, letterSpacing:'-.02em', color:'#fff', margin:'10px 0 0',
+    display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' },
+  featArtist: { fontSize:'clamp(13px, 2.4vw, 16px)', fontWeight:600, color:'var(--text2)', marginTop:8,
+    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  featActions: { display:'flex', alignItems:'center', gap:10, marginTop:'clamp(14px, 2.4vw, 22px)', flexWrap:'wrap' },
+  featPlay: { display:'inline-flex', alignItems:'center', gap:8, background:'var(--accent)', color:'#fff',
+    fontWeight:700, fontSize:14.5, padding:'11px 22px', borderRadius:999, border:'none', cursor:'pointer',
+    boxShadow:'0 12px 28px -8px rgba(236,28,43,.75)' },
+  featGhost: { display:'inline-flex', alignItems:'center', color:'#fff', fontWeight:600, fontSize:13.5,
+    padding:'11px 18px', borderRadius:999, background:'rgba(255,255,255,.08)',
+    border:'1px solid rgba(255,255,255,.18)', backdropFilter:'blur(6px)', WebkitBackdropFilter:'blur(6px)' },
+  featCoverWrap: { width:'clamp(150px, 17vw, 196px)', aspectRatio:'1 / 1', flexShrink:0, borderRadius:16,
+    overflow:'hidden', border:'1px solid rgba(255,255,255,.14)',
+    boxShadow:'0 24px 54px -18px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.05) inset' },
+  featCover: { width:'100%', height:'100%', objectFit:'cover', display:'block', background:'var(--bg3)' },
+  featCoverPh: { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg3)' },
 
   secHead: { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, marginTop:6 },
   secTitle: { fontFamily:'var(--font-display)', fontSize:20, fontWeight:800, letterSpacing:'-.01em' },
