@@ -198,9 +198,8 @@ function TrackSlide({ track, rank, kind, queue }) {
   )
 }
 
-// The beatmakers-event slide — registration opens WhatsApp with a ready message.
-const EVENT_WA = 'https://wa.me/240555901453?text=' +
-  encodeURIComponent('Hola, quiero registrarme para el evento de beatmakers del país (240 Beats · EG Music).')
+// The beatmakers-event slide — registration lives on 240 Beats.
+const EVENT_URL = 'https://240beats.com'
 
 function EventSlide() {
   const isMobile = useIsMobile()
@@ -213,8 +212,8 @@ function EventSlide() {
           <h2 style={s.featTitle}>Evento de beatmakers del país</h2>
           <div style={s.evSub}>Productores y cantantes de Guinea Ecuatorial: compite en el primer encuentro nacional de beatmakers, con 240 Beats.</div>
           <div style={s.featActions}>
-            <a href={EVENT_WA} target="_blank" rel="noopener noreferrer" className="eg-press" style={s.featPlay}>
-              <IcoSpark /><span>Regístrate</span>
+            <a href={EVENT_URL} target="_blank" rel="noopener noreferrer" className="eg-press" style={s.featPlay}>
+              <IcoSpark /><span>Regístrate en 240 Beats</span>
             </a>
             <span style={s.evWhen}>Diciembre 2026</span>
           </div>
