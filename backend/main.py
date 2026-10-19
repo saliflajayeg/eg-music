@@ -312,6 +312,65 @@ def set_track_schedule(track_id: int, body: ScheduleBody, user=Depends(require_u
     db.set_publish_at(track_id, _parse_publish_at(body.publish_at))
     return db.get_track(track_id, viewer_id=user['id'])
 
+@app.post("/api/tracks/{track_id}/edit")
+async def edit_track(
+    track_id: int,
+    title:         str = Form(...),
+    collaborators: Optional[str] = Form(None),   # JSON list, or omitted = leave unchanged
+    cover:         Optional[UploadFile] = File(None),
+    user=Depends(require_user),
+):
+    """An artist (or admin) edits a published track: title, cover and credited
+    collaborators. The audio/video file itself is not replaced here."""
+    t = db.get_track(track_id)
+    if not t: raise HTTPException(404)
+    if t['user_id'] != user['id'] and not user['is_admin']:
+        raise HTTPException(403, "No es tu canción")
+
+    title = (title or '').strip()
+    if not title: raise HTTPException(400, "El título no puede estar vacío")
+
+    # New cover (optional) — store it like an upload; the old file is left in R2.
+    new_cover = None
+    if cover and cover.filename:
+        cext = Path(cover.filename).suffix.lower()
+        if cext not in IMAGE_MIME:
+            raise HTTPException(400, "Formato de imagen no soportado")
+        cover_fname = f"cover_{t['user_id']}_{uuid.uuid4().hex[:8]}{cext}"
+        cover_data = await cover.read()
+        if storage.enabled():
+            storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
+        else:
+            (COVERS_DIR / cover_fname).write_bytes(cover_data)
+        new_cover = cover_fname
+
+    db.update_track(track_id, title=title, cover=new_cover)
+
+    # Collaborators — only touched when the field is sent. Owner keeps the rest.
+    if collaborators is not None:
+        collabs = []
+        if collaborators.strip():
+            try:
+                parsed = json.loads(collaborators)
+                if isinstance(parsed, list):
+                    collabs = parsed[:10]
+            except Exception:
+                raise HTTPException(400, "Colaboradores inválidos")
+        total = 0.0
+        for c in collabs:
+            try:
+                p = float(c.get('percent') or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Porcentaje inválido")
+            if p <= 0 or p >= 100:
+                raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
+            total += p
+        if total >= 100:
+            raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+        db.set_track_artists(track_id, t['user_id'], round(100.0 - total, 2), collabs, preserve_status=True)
+
+    return db.get_track(track_id, viewer_id=user['id'])
+
 # ── Playlists ────────────────────────────────────────────────────────────────
 
 class PlaylistBody(BaseModel):

@@ -7,6 +7,7 @@ import { isNative, isDownloaded, downloadMedia, deleteDownload } from '../offlin
 import { shareTrack } from '../share'
 import ArtistLine from './ArtistLine'
 import AddToPlaylist from './AddToPlaylist'
+import EditTrack from './EditTrack'
 import { toast } from 'sonner'
 
 // YouTube-style card: a big 16:9 thumbnail leads, title + artist below.
@@ -23,11 +24,23 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
   const [dl,        setDl]        = useState('none')
   const [hover,     setHover]     = useState(false)
   const [pub,       setPub]       = useState(track.publish_at || '')
+  const [showEdit,  setShowEdit]  = useState(false)
+  const [edited,    setEdited]    = useState(null)   // server copy after an edit
+  const [coverBust, setCoverBust] = useState(0)      // cache-busts the cover after a change
+
+  // Show the edited values immediately after saving; the rest comes from props.
+  const tk = edited || track
+  const coverSrc = trackCoverUrl(track.id) + (coverBust ? `?v=${coverBust}` : '')
 
   // publish_at llega como 'YYYY-MM-DD HH:MM:SS' en UTC
   const schedAt = pub ? new Date(pub.replace(' ', 'T') + 'Z') : null
   const isScheduled = schedAt && schedAt.getTime() > Date.now()
   const canManage = user && (user.id === track.user_id || user.is_admin)
+
+  function handleSaved(updated) {
+    setEdited(updated); setErr(false); setCoverBust(Date.now())
+    toast.success('Canción actualizada')
+  }
 
   useEffect(() => {
     if (isNative()) isDownloaded(track.id).then(d => setDl(d ? 'done' : 'none'))
@@ -73,8 +86,8 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
     <div className="eg-tile" style={s.card} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       {/* Thumbnail */}
       <div className="eg-thumb" style={s.thumb} onClick={handlePlay}>
-        {track.cover && !err ? (
-          <img src={trackCoverUrl(track.id)} onError={() => setErr(true)} style={s.thumbImg} alt={`Portada de ${track.title}`} />
+        {tk.cover && !err ? (
+          <img src={coverSrc} onError={() => setErr(true)} style={s.thumbImg} alt={`Portada de ${tk.title}`} />
         ) : (
           <div style={s.thumbPh}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="var(--text3)">
@@ -95,8 +108,8 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
 
       {/* Info */}
       <div style={s.info}>
-        <div style={{ ...s.title, color: isActive ? 'var(--accent2)' : 'var(--text)' }} title={track.title}>{track.title}</div>
-        <ArtistLine track={track} style={s.artist} />
+        <div style={{ ...s.title, color: isActive ? 'var(--accent2)' : 'var(--text)' }} title={tk.title}>{tk.title}</div>
+        <ArtistLine track={tk} style={s.artist} />
         {isScheduled && canManage && (
           <div style={s.schedRow}>
             <span title={schedAt.toLocaleString()}>
@@ -127,14 +140,27 @@ export default function TrackCard({ track, queue, onDelete, onRemove }) {
               {dl === 'busy' ? '⏳' : dl === 'done' ? <span style={{ color:'var(--accent2)' }}>✓</span> : '⬇'}
             </button>
           )}
-          {user && (user.id === track.user_id || user.is_admin) && (
-            <button onClick={handleDelete} className="eg-press" style={{ ...s.actBtn, marginLeft:'auto' }} title="Eliminar">✕</button>
+          {canManage && (
+            <button onClick={(e) => { e.stopPropagation(); setShowEdit(true) }} className="eg-press"
+              style={{ ...s.actBtn, marginLeft:'auto' }} title="Editar canción"><IcoEdit /></button>
+          )}
+          {canManage && (
+            <button onClick={handleDelete} className="eg-press" style={s.actBtn} title="Eliminar">✕</button>
           )}
         </div>
       </div>
+
+      {showEdit && (
+        <EditTrack track={tk} onClose={() => setShowEdit(false)} onSaved={handleSaved} />
+      )}
     </div>
   )
 }
+
+const IcoEdit = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+)
 
 const IcoQueue = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

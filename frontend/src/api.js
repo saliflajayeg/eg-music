@@ -92,6 +92,7 @@ export const getTrack         = id         => get(`/tracks/${id}`)
 export const uploadTrack      = fd         => postForm('/tracks', fd)
 export const deleteTrack      = id         => del(`/tracks/${id}`)
 export const scheduleTrack    = (id, publish_at) => patch(`/tracks/${id}/schedule`, { publish_at })
+export const editTrack        = (id, fd)   => postForm(`/tracks/${id}/edit`, fd)
 export const likeTrack        = id         => post(`/tracks/${id}/like`)
 export const search           = q          => get(`/search?q=${encodeURIComponent(q)}`)
 

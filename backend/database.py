@@ -804,11 +804,18 @@ class Database:
 
     # ── Collaborations (multi-artist tracks + revenue splits) ──────────────────
 
-    def set_track_artists(self, track_id, owner_id, owner_percent, collaborators):
+    def set_track_artists(self, track_id, owner_id, owner_percent, collaborators, preserve_status=False):
         """Record who made a track. `collaborators` is [{user_id, percent, role}];
         `role` is a credit like Productor / Máster / Mezcla (empty = artist).
         Each starts pending until that artist accepts. The uploader is stored
-        as the owner and is accepted automatically."""
+        as the owner and is accepted automatically.
+        preserve_status=True (used when EDITING a published track) keeps a
+        collaborator 'accepted' if they had already accepted, so a title/cover
+        edit doesn't force everyone to accept again."""
+        prev = {}
+        if preserve_status:
+            for r in self.conn.execute('SELECT user_id, status FROM track_artists WHERE track_id=?', (track_id,)).fetchall():
+                prev[int(r['user_id'])] = r['status']
         self.conn.execute('DELETE FROM track_artists WHERE track_id=?', (track_id,))
         self.conn.execute(
             "INSERT INTO track_artists (track_id, user_id, percent, status, is_owner, role) VALUES (?,?,?,'accepted',1,'')",
@@ -818,10 +825,21 @@ class Database:
             uid = c.get('user_id')
             if not uid or int(uid) == int(owner_id):
                 continue
+            status = 'accepted' if prev.get(int(uid)) == 'accepted' else 'pending'
             self.conn.execute(
-                "INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner, role) VALUES (?,?,?,'pending',0,?)",
-                (track_id, uid, float(c.get('percent') or 0), (c.get('role') or '').strip()[:40])
+                "INSERT OR IGNORE INTO track_artists (track_id, user_id, percent, status, is_owner, role) VALUES (?,?,?,?,0,?)",
+                (track_id, uid, float(c.get('percent') or 0), status, (c.get('role') or '').strip()[:40])
             )
+        self.conn.commit()
+
+    def update_track(self, track_id, title=None, cover=None):
+        """Edit a published track's metadata. Only non-None fields change."""
+        sets, vals = [], []
+        if title is not None: sets.append('title=?');  vals.append(title)
+        if cover is not None: sets.append('cover=?');  vals.append(cover)
+        if not sets: return
+        vals.append(track_id)
+        self.conn.execute(f'UPDATE tracks SET {", ".join(sets)} WHERE id=?', tuple(vals))
         self.conn.commit()
 
     def get_track_artists(self, track_id, include_pending=False):
