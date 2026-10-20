@@ -509,9 +509,11 @@ export default function MediaPlayer() {
     set('previoustrack', () => _apiRef.current.prev?.())
     set('nexttrack', () => { endCrossfade(); next() })
     set('seekto', d => { if (d.seekTime != null) seekTo(d.seekTime) })
-    set('seekbackward', d => seekTo(Math.max(0, (videoRef.current?.currentTime || 0) - (d.seekOffset || 10))))
-    set('seekforward', d => seekTo((videoRef.current?.currentTime || 0) + (d.seekOffset || 10)))
-    return () => ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto', 'seekbackward', 'seekforward']
+    // No seekbackward/seekforward on purpose: we want the lock screen to show
+    // PREVIOUS / NEXT track buttons (change song), not ±10s skip-within-song.
+    set('seekbackward', null)
+    set('seekforward', null)
+    return () => ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto']
       .forEach(a => { try { ms.setActionHandler(a, null) } catch {} })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [next])
