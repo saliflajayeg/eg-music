@@ -10,7 +10,7 @@ import ArtistLine, { PERFORMING_ROLES } from './ArtistLine'
 import ArtistHeader from './ArtistHeader'
 import Comments from './Comments'
 import AddToPlaylist from './AddToPlaylist'
-import { EASE, prefersReducedMotion, usePresence } from '../motion'
+import { EASE, prefersReducedMotion, usePresence, spring } from '../motion'
 import { toast } from 'sonner'
 
 const HEADER_H = 52
@@ -98,6 +98,7 @@ export default function MediaPlayer() {
   const npAnimRef = useRef(null)
   const mediaAnimRef = useRef(null)
   const flipFromRef = useRef(null)    // media frame rect before the switch
+  const flipRadiusRef = useRef(0)     // …and its corner radius
   const [npMounted, setNpMounted] = useState(expanded)
   const [barHold, setBarHold] = useState(false)   // keep the mini bar under the page while it slides in
   const [prevExpanded, setPrevExpanded] = useState(expanded)
@@ -105,6 +106,7 @@ export default function MediaPlayer() {
     // The DOM still shows the old layout during this render: grab the frame's
     // on-screen rect (including any drag offset) before React moves it.
     flipFromRef.current = wrapRef.current ? wrapRef.current.getBoundingClientRect() : null
+    flipRadiusRef.current = wrapRef.current ? parseFloat(getComputedStyle(wrapRef.current).borderTopLeftRadius) || 0 : 0
     setPrevExpanded(expanded)
     setBarHold(expanded && !prefersReducedMotion())
     if (expanded) setNpMounted(true)
@@ -241,16 +243,22 @@ export default function MediaPlayer() {
     const w = wrapRef.current, np = npRef.current
     const from = flipFromRef.current; flipFromRef.current = null
 
-    // Media frame: FLIP from where it was to where it now sits.
+    // Media frame: FLIP from where it was to where it now sits, on a spring
+    // (a hair of overshoot opening, none closing). The corner radius is
+    // counter-scaled so the corners read as the same shape morphing instead
+    // of shrinking with the scale.
     mediaAnimRef.current?.cancel()
     if (w) w.style.transform = ''          // drop any drag offset (already in `from`)
     if (w && from && !reduce) {
       const to = w.getBoundingClientRect()
       if (to.width && to.height) {
+        const sx = from.width / to.width, sy = from.height / to.height
+        const r0 = flipRadiusRef.current, r1 = parseFloat(getComputedStyle(w).borderTopLeftRadius) || 0
+        const sp = expanded ? spring(19, 0.82) : spring(24, 1)
         mediaAnimRef.current = w.animate([
-          { transformOrigin:'0 0', transform:`translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
-          { transformOrigin:'0 0', transform:'none' },
-        ], { duration: expanded ? 380 : 280, easing: EASE.drawer })
+          { transformOrigin:'0 0', transform:`translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${sx}, ${sy})`, borderRadius:`${r0 / sx}px / ${r0 / sy}px` },
+          { transformOrigin:'0 0', transform:'none', borderRadius:`${r1}px` },
+        ], sp)
       }
     }
 
@@ -266,7 +274,7 @@ export default function MediaPlayer() {
     if (expanded) {
       anim = reduce
         ? np.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease' })
-        : np.animate([{ transform: start || 'translateY(100%)' }, { transform: 'none' }], { duration: 380, easing: EASE.drawer })
+        : np.animate([{ transform: start || 'translateY(100%)' }, { transform: 'none' }], spring(20, 1))
       anim.onfinish = () => { npAnimRef.current = null; setBarHold(false) }
     } else {
       anim = reduce
@@ -342,6 +350,9 @@ export default function MediaPlayer() {
     const onPause = () => _setIsPlaying(false)
     const onTime = () => {
       setCur(v.currentTime); _resumeAt[current.id] = v.currentTime
+      if ('mediaSession' in navigator && v.duration && isFinite(v.duration)) {
+        try { navigator.mediaSession.setPositionState({ duration: v.duration, position: Math.min(v.currentTime, v.duration), playbackRate: v.playbackRate || 1 }) } catch {}
+      }
       if (!countedRef.current && v.currentTime > 1) {
         countedRef.current = true
         if (isLocal) isDownloaded(current.id).then(d => { if (d && !localPlayedRef.current) { localPlayedRef.current = true; queuePlay(current.id) } })
@@ -467,6 +478,49 @@ export default function MediaPlayer() {
   const artistName = (current.artists && current.artists.length)
     ? current.artists.map(a => a.display_name || a.username).join(', ')
     : (current.artist || current.display_name || current.username)
+
+  // ── Lock-screen / notification player (MediaSession API) ──────────────────
+  // Branded metadata so the phone's media panel shows the cover, the song, the
+  // artist and "EG Music" — falling back to the app icon when there's no cover.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const artSrc = current.cover ? trackCoverUrl(current.id) : '/icons/icon-512.png'
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: current.title || 'EG Music',
+        artist: artistName || 'EG Music',
+        album: 'EG Music',
+        artwork: [
+          { src: artSrc, sizes: '512x512', type: 'image/png' },
+          { src: artSrc, sizes: '256x256', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      })
+    } catch {}
+  }, [current.id, current.title, current.cover, artistName])
+
+  // Hardware / lock-screen buttons → the real player controls.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+    const set = (a, h) => { try { ms.setActionHandler(a, h) } catch {} }
+    set('play',  () => _apiRef.current.play?.())
+    set('pause', () => { const v = videoRef.current; if (v) v.pause() })
+    set('previoustrack', () => _apiRef.current.prev?.())
+    set('nexttrack', () => { endCrossfade(); next() })
+    set('seekto', d => { if (d.seekTime != null) seekTo(d.seekTime) })
+    set('seekbackward', d => seekTo(Math.max(0, (videoRef.current?.currentTime || 0) - (d.seekOffset || 10))))
+    set('seekforward', d => seekTo((videoRef.current?.currentTime || 0) + (d.seekOffset || 10)))
+    return () => ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto', 'seekbackward', 'seekforward']
+      .forEach(a => { try { ms.setActionHandler(a, null) } catch {} })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next])
+
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused' } catch {}
+    }
+  }, [isPlaying])
 
   // One combined shuffle/repeat control: it cycles normal → aleatorio →
   // repetir cola → repetir una. These drive its icon, colour and tooltip.
@@ -619,7 +673,7 @@ export default function MediaPlayer() {
   const barChrome = (
     <div style={{ ...s.bar, height: isMobile ? 78 : 84 }}>
       <div style={{ ...s.barTop, paddingLeft: coverClear }}>
-        <div style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={expand}>
+        <div key={current.id} className="eg-swap" style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={expand}>
           <div style={s.barTitle}>{current.title}</div>
           <div style={s.barArtist}>{artistName}</div>
         </div>
@@ -729,7 +783,7 @@ export default function MediaPlayer() {
   const nowPlaying = (
     <>
       <div style={s.npTitleRow}>
-        <div style={{ minWidth:0, flex:1 }}>
+        <div key={current.id} className="eg-swap" style={{ minWidth:0, flex:1 }}>
           <h1 style={s.npTitle}>{current.title}</h1>
           <ArtistLine track={current} style={s.npArtist} showSplit={(current.artists||[]).length>1} />
         </div>
