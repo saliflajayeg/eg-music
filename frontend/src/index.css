@@ -109,10 +109,17 @@ p { text-wrap: pretty; }
 .eg-shimmer::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.055), transparent); animation: egShimmer 1.4s infinite; }
 @keyframes egShimmer { to { transform: translateX(100%); } }
+/* Content that swaps in place (track title, plan cards): a short blur in,
+   and a faster blur out so old and new never overlap. */
+@keyframes egSwapIn { from { opacity: 0; filter: blur(6px); transform: translateY(4px); } }
+.eg-swap { animation: egSwapIn 260ms var(--ease-out) backwards; }
+.eg-swap-out { opacity: 0; filter: blur(6px); transition: opacity 110ms var(--ease-out), filter 110ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) {
   .eg-press, .eg-card, .eg-row, .eg-dot-t, .eg-link, .eg-tile, .eg-thumb img { transition: none; }
   .eg-press:active, .eg-card:active, .eg-card:hover, .eg-row:active, .eg-tile:hover, .eg-thumb:hover img { transform: none; }
   .eg-rise { animation: none; }
+  .eg-swap { animation: none; }
+  .eg-swap-out { filter: none; }
   .eg-shimmer::after { animation: none; }
 }
 

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getSubInfo, getMySubRequest, requestSub } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { PLAN_LABEL } from '../plans'
+import { prefersReducedMotion, springTo } from '../motion'
 
 export default function Subscribe() {
   const { user } = useAuth()
@@ -16,6 +17,18 @@ export default function Subscribe() {
   const [loading, setLoading]   = useState(false)
   const [sent, setSent]         = useState(false)
   const [error, setError]       = useState('')
+  // Oyentes / Artistas switcher. `group` follows the tab at once; `shownGroup`
+  // swaps a beat later so the old cards blur out before the new ones blur in.
+  const [group, setGroup]       = useState(() => ['pro', 'premium'].includes(user?.plan) ? 'artist' : 'listen')
+  const [shownGroup, setShownGroup] = useState(group)
+  const swapTimer = useRef(null)
+  useEffect(() => () => clearTimeout(swapTimer.current), [])
+  function pickGroup(g) {
+    if (g === group) return
+    setGroup(g)
+    clearTimeout(swapTimer.current)
+    swapTimer.current = setTimeout(() => setShownGroup(g), prefersReducedMotion() ? 0 : 110)
+  }
 
   useEffect(() => {
     getSubInfo().then(setInfo).catch(() => {})
@@ -160,25 +173,80 @@ export default function Subscribe() {
         Planes para escuchar y para artistas que quieren compartir su música.
       </p>
 
-      <h2 style={s.groupTitle}>🎧 Para oyentes</h2>
-      <div style={s.grid}>
-        <PlanCard name="Gratis" color="var(--text2)" price="Gratis"
-          features={[`${freeDl} descargas`, 'Escucha canciones y videos', 'Solo reproducir/pausar (sin saltar)']}
-          current={user.plan === 'free'} />
-        <PlanCard name="Amante de la música" color="#8b5cf6" price={PRICE.amante}
-          features={['Escucha sin límites', `${dl} descargas al mes`, 'Control total del reproductor']}
-          current={user.plan === 'amante'} onSelect={choose('amante')} />
+      <div style={{display:'flex',justifyContent:'center',marginBottom:22}}>
+        <LiquidTabs value={group} onChange={pickGroup}
+          tabs={[{ id:'listen', label:'🎧 Para oyentes' }, { id:'artist', label:'🎤 Para artistas' }]} />
       </div>
 
-      <h2 style={{...s.groupTitle, marginTop:28}}>🎤 Para artistas</h2>
-      <div style={s.grid}>
-        <PlanCard name="Pro" color="var(--blue)" price={PRICE.pro}
-          features={['Escucha sin límites', `${dl} descargas al mes`, `Sube ${proUp} canciones o videos al mes`]}
-          current={user.plan === 'pro'} onSelect={choose('pro')} />
-        <PlanCard name="Premium" color="var(--gold)" price={PRICE.premium}
-          features={['Escucha y videos sin límites', 'Descargas ilimitadas', `Sube ${premUp} canciones o videos al mes`]}
-          current={user.plan === 'premium'} onSelect={choose('premium')} gold />
+      <div key={shownGroup} className={group !== shownGroup ? 'eg-swap-out' : 'eg-swap'} style={s.grid}>
+        {shownGroup === 'listen' ? <>
+          <PlanCard name="Gratis" color="var(--text2)" price="Gratis"
+            features={[`${freeDl} descargas`, 'Escucha canciones y videos', 'Solo reproducir/pausar (sin saltar)']}
+            current={user.plan === 'free'} />
+          <PlanCard name="Amante de la música" color="#8b5cf6" price={PRICE.amante}
+            features={['Escucha sin límites', `${dl} descargas al mes`, 'Control total del reproductor']}
+            current={user.plan === 'amante'} onSelect={choose('amante')} />
+        </> : <>
+          <PlanCard name="Pro" color="var(--blue)" price={PRICE.pro}
+            features={['Escucha sin límites', `${dl} descargas al mes`, `Sube ${proUp} canciones o videos al mes`]}
+            current={user.plan === 'pro'} onSelect={choose('pro')} />
+          <PlanCard name="Premium" color="var(--gold)" price={PRICE.premium}
+            features={['Escucha y videos sin límites', 'Descargas ilimitadas', `Sube ${premUp} canciones o videos al mes`]}
+            current={user.plan === 'premium'} onSelect={choose('premium')} gold />
+        </>}
       </div>
+    </div>
+  )
+}
+
+// Segmented control with a liquid indicator: its two edges ride different
+// springs, so the leading edge stretches ahead and the trailing one catches up.
+function LiquidTabs({ tabs, value, onChange }) {
+  const btnRefs = useRef({})
+  const indRef = useRef(null)
+  const L = useRef({ value: null }), R = useRef({ value: null })
+
+  const paint = () => {
+    const el = indRef.current; if (!el) return
+    const l = L.current.value, r = R.current.value
+    el.style.transform = `translateX(${l}px)`
+    el.style.width = `${Math.max(0, r - l)}px`
+    for (const t of tabs) {   // a label turns white once the indicator covers its centre
+      const b = btnRefs.current[t.id]; if (!b) continue
+      const c = b.offsetLeft + b.offsetWidth / 2
+      b.style.color = c > l && c < r ? '#fff' : 'var(--text2)'
+    }
+  }
+
+  const moveTo = (jump) => {
+    const b = btnRefs.current[value]; if (!b) return
+    const l = b.offsetLeft, r = l + b.offsetWidth
+    if (jump) { L.current.value = null; R.current.value = null }
+    const right = L.current.value == null || l > L.current.value
+    const lead = { w: 30, z: 0.78, onUpdate: paint }, trail = { w: 16, z: 0.9, onUpdate: paint }
+    springTo(L.current, l, right ? trail : lead)
+    springTo(R.current, r, right ? lead : trail)
+  }
+
+  const moveRef = useRef(moveTo)
+  moveRef.current = moveTo
+  useLayoutEffect(() => { moveTo(false) }, [value])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onResize = () => moveRef.current(true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      cancelAnimationFrame(L.current.raf); cancelAnimationFrame(R.current.raf)
+    }
+  }, [])
+
+  return (
+    <div role="tablist" style={s.tabs}>
+      <div ref={indRef} style={s.tabInd} />
+      {tabs.map(t => (
+        <button key={t.id} ref={el => { btnRefs.current[t.id] = el }} role="tab" aria-selected={value === t.id}
+          onClick={() => onChange(t.id)} style={s.tab}>{t.label}</button>
+      ))}
     </div>
   )
 }
@@ -209,7 +277,9 @@ const s = {
   priceBox: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'20px 24px',marginBottom:20,textAlign:'center'},
   instructions: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:20,marginBottom:20},
   error: {background:'rgba(var(--danger-rgb),.15)',color:'var(--danger)',padding:'10px 14px',borderRadius:8,marginBottom:12,fontSize:13},
-  groupTitle: {fontSize:15,fontWeight:700,marginBottom:12,color:'var(--text)'},
+  tabs: {position:'relative',display:'inline-flex',padding:4,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:999},
+  tabInd: {position:'absolute',left:0,top:4,bottom:4,width:0,borderRadius:999,background:'var(--accent)'},
+  tab: {position:'relative',padding:'10px 18px',borderRadius:999,fontSize:14,fontWeight:700,color:'var(--text2)',transition:'color 120ms var(--ease-out), transform 160ms var(--ease-out)',whiteSpace:'nowrap'},
   grid: {display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(215px,1fr))',gap:16},
   planCard: {background:'var(--bg2)',border:'2px solid var(--border)',borderRadius:14,padding:'20px 18px',display:'flex',flexDirection:'column'},
   featureList: {listStyle:'none',display:'flex',flexDirection:'column',gap:8,margin:'14px 0 18px',flex:1,padding:0},
