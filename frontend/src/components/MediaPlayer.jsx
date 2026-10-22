@@ -379,9 +379,13 @@ export default function MediaPlayer() {
       }
       // Crossfade: when the current audio track is within the fade window of its
       // end and there's a real next track, start the overlap.
+      // Not while the screen is locked / app backgrounded: the OS freezes the
+      // fade timer, which would leave the next track stuck silent at volume 0
+      // until you unlock. When hidden we skip the fade and let 'ended' advance
+      // with a clean hard cut at full volume (that keeps playing in background).
       const X = liveRef.current
       if (d && X.crossfade > 0 && !X.isVideo && X.repeat !== 'one'
-          && !xfadeRef.current.active && X.queue.length > 1
+          && !xfadeRef.current.active && X.queue.length > 1 && !document.hidden
           && d - v.currentTime <= X.crossfade) {
         startCrossfade()
       }
@@ -427,6 +431,16 @@ export default function MediaPlayer() {
   // If playback pauses mid-crossfade, stop the overlap cleanly.
   useEffect(() => { if (!isPlaying && xfadeRef.current.active) endCrossfade() // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying])
+
+  // Going to the background (screen lock) freezes the fade timer. If a crossfade
+  // is mid-way, finalize it now so the incoming track jumps to full volume and
+  // keeps playing, instead of being stranded silent until the screen comes back.
+  useEffect(() => {
+    const onVis = () => { if (document.hidden && xfadeRef.current.active) endCrossfade() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function seekTo(t) { endCrossfade(); const v = videoRef.current; if (v) { v.currentTime = t; setCur(t) } }
   function toggleMute() { const v = videoRef.current; if (v) v.muted = !v.muted }
