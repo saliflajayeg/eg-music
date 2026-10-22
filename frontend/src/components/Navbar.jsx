@@ -131,16 +131,24 @@ function SearchBar() {
     if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`)
   }
   return (
-    <form onSubmit={submit} style={s.searchForm}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text3)" style={{flexShrink:0}}>
+    <form onSubmit={submit} role="search" style={s.searchForm}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text3)" style={{flexShrink:0}} aria-hidden="true">
         <path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
       </svg>
       <input
+        type="search"
+        // Phone keyboards show a "Buscar" key instead of a plain Enter.
+        enterKeyHint="search"
+        aria-label="Buscar música o artistas"
         style={s.searchInput}
         value={q}
         onChange={e => setQ(e.target.value)}
         placeholder="Buscar música, artistas..."
       />
+      {/* Visible button: on phones there's often no obvious Enter key. */}
+      <button type="submit" className="eg-press" style={s.searchBtn}>
+        Buscar
+      </button>
     </form>
   )
 }
@@ -273,12 +281,17 @@ const s = {
     flex:1, maxWidth:380,
     display:'flex', alignItems:'center', gap:8,
     background:'var(--bg3)', borderRadius:8,
-    padding:'7px 12px', border:'1px solid var(--border)',
+    padding:'4px 4px 4px 12px', border:'1px solid var(--border)',
     minWidth:0,
   },
   searchInput: {
-    flex:1, background:'transparent', border:'none', outline:'none',
-    color:'var(--text)', fontSize:14,
+    flex:1, minWidth:0, background:'transparent', border:'none', outline:'none',
+    color:'var(--text)', fontSize:14, padding:'3px 0',
+  },
+  searchBtn: {
+    flexShrink:0, background:'var(--accent)', color:'#fff',
+    fontWeight:700, fontSize:13, borderRadius:6, padding:'6px 12px',
+    border:'none', cursor:'pointer',
   },
   right: { display:'flex', alignItems:'center', gap:10, marginLeft:'auto', flexShrink:0 },
   uploadBtn: {

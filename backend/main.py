@@ -934,7 +934,8 @@ def get_avatar(fname: str):
 @app.get("/api/search")
 def search(q: str = ''):
     if not q.strip(): return {'tracks': [], 'users': []}
-    return db.search(q.strip())
+    # Public search only lists artists, never listener accounts.
+    return db.search(q.strip(), artists_only=True)
 
 # ── Subscription ───────────────────────────────────────────────────────────────
 

@@ -1078,7 +1078,11 @@ class Database:
 
     # ── Search ────────────────────────────────────────────────────────────────
 
-    def search(self, q):
+    def search(self, q, artists_only=False):
+        """Tracks + accounts matching `q`. With `artists_only`, listener
+        accounts (Gratis / Amante de la música with no music) are left out:
+        only artist-plan accounts (pro/premium) or accounts that have published
+        or are credited on a track show up."""
         like = f'%{q}%'
         # Also matches credited collaborators, so searching an artist finds the
         # songs they're featured on, not only the ones they uploaded.
@@ -1098,12 +1102,27 @@ class Database:
             )
             ORDER BY t.play_count DESC LIMIT 30
         ''', (like, like, like, like, like)).fetchall()
-        users = self.conn.execute('''
+        artist_filter = '''
+              AND (plan IN ('pro', 'premium')
+                   OR EXISTS (SELECT 1 FROM tracks t2
+                              WHERE t2.user_id = users.id AND t2.is_public = 1)
+                   OR EXISTS (SELECT 1 FROM track_artists ta2
+                              WHERE ta2.user_id = users.id AND ta2.status = 'accepted'))
+        ''' if artists_only else ''
+        users = self.conn.execute(f'''
             SELECT id, username, display_name, bio, avatar, plan,
                    (SELECT COUNT(*) FROM tracks WHERE user_id=users.id AND is_public=1) AS track_count
-            FROM users WHERE username LIKE ? OR display_name LIKE ?
+            FROM users
+            WHERE (username LIKE ? OR display_name LIKE ?)
+            {artist_filter}
+            ORDER BY
+              -- exact name first, then names that start with the query
+              CASE WHEN username LIKE ? OR display_name LIKE ? THEN 0
+                   WHEN username LIKE ? OR display_name LIKE ? THEN 1
+                   ELSE 2 END,
+              track_count DESC
             LIMIT 10
-        ''', (like, like)).fetchall()
+        ''', (like, like, q, q, f'{q}%', f'{q}%')).fetchall()
         return {'tracks': self._with_artists(tracks), 'users': [dict(r) for r in users]}
 
     # ── Subscription requests ─────────────────────────────────────────────────
