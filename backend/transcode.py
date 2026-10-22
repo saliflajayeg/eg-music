@@ -1,18 +1,28 @@
-"""Background 480p 'data saver' rendition generator for videos.
+"""Background 360p 'data saver' rendition generator for videos.
 
 Uploads stay fast: the original file is saved and served immediately, while a
-single lower-quality 480p copy is produced off the request path by one worker
-thread. The egbox CPU (dual-core Pentium) can only handle one transcode at a
-time, so the queue is deliberately serial and ffmpeg runs at low priority.
+single lower-quality 360p copy is produced off the request path by one worker
+thread. Transcoding is deliberately serial (one ffmpeg at a time) and, on the
+weak shared CPU of the hosting box, runs at low priority so the app stays
+responsive.
 
-The player picks original vs 480p based on the viewer's connection speed.
+Works in both storage modes:
+  * R2 (production): the original is pulled from R2 to a temp file, encoded,
+    and the 360p copy is uploaded back to R2 under tracks/sd_<name>.mp4.
+  * local disk (dev): the copy is written next to the original.
+
+The player picks original vs 360p based on the viewer's connection speed
+(see connectionPrefersSd() in MediaPlayer.jsx).
 """
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import queue
 from pathlib import Path
+
+import storage
 
 _q = queue.Queue()
 _started = False
@@ -22,20 +32,68 @@ def ffmpeg_available():
     return shutil.which('ffmpeg') is not None
 
 
-def _cmd(src, tmp):
+def _cmd(src, out):
     base = ['ffmpeg', '-y', '-i', str(src),
-            # never upscale: cap height at 480, keep aspect, width divisible by 2
-            '-vf', "scale=-2:'min(480,ih)'",
+            # never upscale: cap height at 360, keep aspect, width divisible by 2
+            '-vf', "scale=-2:'min(360,ih)'",
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30',
-            '-maxrate', '900k', '-bufsize', '1800k',
+            '-maxrate', '600k', '-bufsize', '1200k',
             '-c:a', 'aac', '-b:a', '96k',
             '-movflags', '+faststart',      # progressive streaming (moov up front)
-            '-f', 'mp4',                    # tmp file ends in .part, so name the muxer explicitly
-            str(tmp)]
+            '-f', 'mp4',                    # name the muxer explicitly (temp names vary)
+            str(out)]
     # Keep the app responsive on the weak CPU.
     if os.name == 'posix' and shutil.which('nice'):
         base = ['nice', '-n', '19'] + base
     return base
+
+
+def _encode(src, out):
+    """Run ffmpeg; return True only on a clean, non-empty output."""
+    proc = subprocess.run(_cmd(src, out),
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return proc.returncode == 0 and out.exists() and out.stat().st_size > 0
+
+
+def _process_r2(db, track_id, filename, out_name):
+    tmpdir = Path(tempfile.mkdtemp(prefix='egtx_'))
+    src = tmpdir / filename
+    out = tmpdir / out_name
+    try:
+        storage.download_to(f'tracks/{filename}', str(src))
+        if _encode(src, out):
+            storage.upload_from(f'tracks/{out_name}', str(out), 'video/mp4')
+            db.set_sd_status(track_id, 'ready', sd_file=out_name)
+        else:
+            db.set_sd_status(track_id, 'failed')
+    except Exception:
+        db.set_sd_status(track_id, 'failed')
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _process_local(db, tracks_dir, track_id, filename, out_name):
+    src = Path(tracks_dir) / filename
+    if not src.exists():
+        db.set_sd_status(track_id, 'failed')
+        return
+    out = Path(tracks_dir) / out_name
+    tmp = Path(tracks_dir) / (out_name + '.part')
+    try:
+        if _encode(src, tmp):
+            os.replace(tmp, out)
+            db.set_sd_status(track_id, 'ready', sd_file=out_name)
+        else:
+            if tmp.exists():
+                tmp.unlink()
+            db.set_sd_status(track_id, 'failed')
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        db.set_sd_status(track_id, 'failed')
 
 
 def _process(db, tracks_dir, track_id):
@@ -44,35 +102,17 @@ def _process(db, tracks_dir, track_id):
         return
     if (row.get('sd_status') or '') == 'ready' and row.get('sd_file'):
         return
-    src = Path(tracks_dir) / row['filename']
-    if not src.exists():
-        db.set_sd_status(track_id, 'failed')
-        return
     if not ffmpeg_available():
         # Leave it retryable rather than 'failed': ffmpeg may get installed later.
         return
 
+    filename = row['filename']
+    out_name = f"sd_{Path(filename).stem}.mp4"
     db.set_sd_status(track_id, 'pending')
-    out_name = f"sd_{src.stem}.mp4"
-    out_path = Path(tracks_dir) / out_name
-    tmp_path = Path(tracks_dir) / (out_name + '.part')
-    try:
-        proc = subprocess.run(_cmd(src, tmp_path),
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if proc.returncode == 0 and tmp_path.exists() and tmp_path.stat().st_size > 0:
-            os.replace(tmp_path, out_path)
-            db.set_sd_status(track_id, 'ready', sd_file=out_name)
-        else:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            db.set_sd_status(track_id, 'failed')
-    except Exception:
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        except Exception:
-            pass
-        db.set_sd_status(track_id, 'failed')
+    if storage.enabled():
+        _process_r2(db, track_id, filename, out_name)
+    else:
+        _process_local(db, tracks_dir, track_id, filename, out_name)
 
 
 def _worker(db, tracks_dir):
@@ -91,7 +131,7 @@ def enqueue(track_id):
 
 
 def start(db, tracks_dir):
-    """Launch the worker and queue every video that still needs a 480p copy
+    """Launch the worker and queue every video that still needs a 360p copy
     (new uploads since this feature, plus anything interrupted by a restart)."""
     global _started
     if _started:

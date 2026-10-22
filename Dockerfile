@@ -9,6 +9,11 @@ RUN npm run build
 # ── Stage 2: Python backend (serves the API + the built SPA) ──────────────────
 FROM python:3.12-slim
 WORKDIR /app
+# ffmpeg: generates the 360p 'data saver' copy of each video in the background
+# so the player can drop to it on slow connections.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ ./backend/

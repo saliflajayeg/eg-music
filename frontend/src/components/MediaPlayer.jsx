@@ -625,7 +625,7 @@ export default function MediaPlayer() {
               <div style={s.qMenu}>
                 <QItem label="Auto (ajusta a tu red)" active={quality==='auto'} onClick={()=>pickQuality('auto')} />
                 <QItem label="Alta (original)" active={quality==='high'} onClick={()=>pickQuality('high')} />
-                <QItem label={`480p · ahorro de datos${sdReady?'':' (preparando…)'}`} active={quality==='sd'} disabled={!sdReady} onClick={()=>sdReady&&pickQuality('sd')} />
+                <QItem label={`360p · ahorro de datos${sdReady?'':' (preparando…)'}`} active={quality==='sd'} disabled={!sdReady} onClick={()=>sdReady&&pickQuality('sd')} />
               </div>
             )}
           </div>

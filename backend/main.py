@@ -68,11 +68,11 @@ SHARE_IMG_DIR = UPLOADS_DIR / "share"   # cached, resized link-preview artwork
 for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR, SHARE_IMG_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-# Background 480p rendition generator (adaptive video quality). Starts the
-# worker and queues any videos that still need a low-quality copy. Skipped when
-# media lives in R2 (no local files for ffmpeg; existing 480p copies still served).
-if not storage.enabled():
-    transcode.start(db, TRACKS_DIR)
+# Background 360p rendition generator (adaptive video quality). Starts the
+# worker and queues any video that still needs a 'data saver' copy. Works with
+# R2 too: the worker pulls the original from R2, encodes, and uploads the copy.
+# (No-op until ffmpeg is present, so it's safe even on images without it.)
+transcode.start(db, TRACKS_DIR)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -523,9 +523,8 @@ async def upload_track(
         raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
     db.set_track_artists(tid, user['id'], round(100.0 - total, 2), collabs)
 
-    # Kick off the 480p 'data saver' rendition in the background (videos only).
-    # Not with R2 (no local file for ffmpeg) — the original is served instead.
-    if media_type == 'video' and not storage.enabled():
+    # Kick off the 360p 'data saver' rendition in the background (videos only).
+    if media_type == 'video':
         db.set_sd_status(tid, 'pending')
         transcode.enqueue(tid)
 
@@ -606,7 +605,7 @@ async def admin_upload_track(
     db.set_track_artists(tid, owner_user_id, round(100.0 - total, 2), collabs)
     db.accept_track_collabs(tid)   # admin => colaboradores aceptados directamente
 
-    if media_type == 'video' and not storage.enabled():
+    if media_type == 'video':
         db.set_sd_status(tid, 'pending'); transcode.enqueue(tid)
     return db.get_track(tid, viewer_id=owner_user_id)
 
@@ -667,7 +666,7 @@ def delete_track(track_id: int, user=Depends(require_user)):
 async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = '', count: int = 1):
     t = db.get_track(track_id)
     if not t: raise HTTPException(404)
-    # q=sd -> serve the 480p 'data saver' rendition if it's ready, else original.
+    # q=sd -> serve the 360p 'data saver' rendition if it's ready, else original.
     fname = t['filename']
     if q == 'sd' and t.get('sd_status') == 'ready' and t.get('sd_file'):
         fname = t['sd_file']

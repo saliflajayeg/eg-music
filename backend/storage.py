@@ -57,6 +57,18 @@ def put_file(key, path, content_type=None):
         put(key, f.read(), content_type)
 
 
+def download_to(key, path):
+    """Stream an object from R2 to a local file — never loads the whole file
+    into memory (originals can be hundreds of MB; the Render box has 512 MB)."""
+    _s3().download_file(_BUCKET, key, path)
+
+
+def upload_from(key, path, content_type=None):
+    """Upload a local file to R2, streamed (multipart for large files)."""
+    extra = {'ContentType': content_type} if content_type else None
+    _s3().upload_file(path, _BUCKET, key, ExtraArgs=extra)
+
+
 def get_bytes(key):
     return _s3().get_object(Bucket=_BUCKET, Key=key)['Body'].read()
 
