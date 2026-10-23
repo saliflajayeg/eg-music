@@ -31,7 +31,7 @@ export default function Navbar() {
       <Link to="/" style={{ ...s.logo, flexDirection:'column', alignItems:'flex-start', gap:1 }}>
         <img src="/logo.png" alt="EG Music"
           style={{...s.logoImg, height: isMobile ? 22 : 26}} />
-        <span style={s.tagline}>MÁS QUE MÚSICA</span>
+        <span style={s.tagline}>SONIDO NACIONAL</span>
       </Link>
       {!isMobile && <Link to="/explore" className="eg-press" style={{ ...s.exploreLink, ...(onExplore ? s.exploreLinkActive : {}) }}>Explorar</Link>}
     </div>
