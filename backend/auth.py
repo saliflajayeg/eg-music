@@ -9,22 +9,43 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 def _load_secret_key():
-    """SECRET_KEY env var wins; otherwise generate a random key once and reuse it.
+    """Clave que firma los tokens de sesión. Debe ser SIEMPRE la misma entre
+    reinicios: si cambia, todos los usuarios tienen que volver a iniciar sesión.
 
-    Never fall back to a hardcoded default — the code is public, so a known
-    default would let anyone forge login tokens.
+    Orden: variable de entorno SECRET_KEY > clave guardada en la base de datos >
+    archivo local secret_key.txt (instalaciones antiguas) > generar una nueva y
+    guardarla en la base de datos.
+
+    En Render el disco se borra en cada reinicio/despliegue, así que el archivo
+    local no sirve: la clave se guarda en la base de datos (Supabase), que sí
+    persiste. Nunca se usa una clave fija en el código (el código es público).
     """
     key = os.environ.get("SECRET_KEY")
     if key:
         return key
+    db = _get_db()
+    key = db.get_setting(_DB_SECRET_SETTING)
+    if key:
+        return key
     key_file = Path(__file__).parent / "secret_key.txt"
     if key_file.exists():
-        return key_file.read_text().strip()
-    key = secrets.token_urlsafe(48)
-    key_file.write_text(key)
+        key = key_file.read_text().strip()   # conserva las sesiones del servidor local
+    else:
+        key = secrets.token_urlsafe(48)
+    db.set_setting(_DB_SECRET_SETTING, key)
     return key
 
-SECRET_KEY = _load_secret_key()
+_DB_SECRET_SETTING = "_jwt_secret"   # '_' = interno, nunca se muestra en el panel de admin
+
+_SECRET_KEY = None
+
+def _secret():
+    """Se carga la primera vez que se usa (la base de datos ya está lista)."""
+    global _SECRET_KEY
+    if _SECRET_KEY is None:
+        _SECRET_KEY = _load_secret_key()
+    return _SECRET_KEY
+
 ALGORITHM  = "HS256"
 # Effectively never expires — users stay logged in until they log out
 # themselves (important for the mobile app + spotty connectivity).
@@ -44,11 +65,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode({"sub": str(user_id), "exp": expire}, _secret(), algorithm=ALGORITHM)
 
 def decode_token(token: str) -> Optional[int]:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _secret(), algorithms=[ALGORITHM])
         return int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         return None

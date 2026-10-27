@@ -1248,7 +1248,9 @@ class Database:
         self.conn.commit()
 
     def get_all_settings(self):
-        return {r['key']: r['value'] for r in self.conn.execute('SELECT * FROM settings').fetchall()}
+        # Las claves que empiezan por '_' son internas (p. ej. la clave de sesión): no se exponen.
+        return {r['key']: r['value'] for r in self.conn.execute('SELECT * FROM settings').fetchall()
+                if not str(r['key']).startswith('_')}
 
     # ── Stats ─────────────────────────────────────────────────────────────────
 
