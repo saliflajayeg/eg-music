@@ -228,3 +228,22 @@ input, textarea, select { font-family: inherit; }
   background: var(--bg2); border-radius: var(--radius);
   border: 1px solid var(--border);
 }
+
+/* Botón flotante de WhatsApp (encima del reproductor y de la barra del móvil) */
+.wa-float {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--player-h) + var(--bottomnav-h) + 16px);
+  z-index: 130;   /* debajo del reproductor ampliado y los menús */
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: #25D366;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  transition: transform 160ms var(--ease-out, ease-out);
+}
+.wa-float:hover { transform: scale(1.07); }
+.wa-float:active { transform: scale(.95); }
+@media (max-width: 640px) {
+  .wa-float { width: 50px; height: 50px; right: 12px; }
+}

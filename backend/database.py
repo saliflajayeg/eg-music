@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     plan TEXT DEFAULT 'free',
     is_admin INTEGER DEFAULT 0,
     is_curator INTEGER DEFAULT 0,
+    account_type TEXT DEFAULT '',
     created_at TEXT DEFAULT {_PG_NOW}
 );
 CREATE TABLE IF NOT EXISTS tracks (
@@ -180,10 +181,12 @@ class Database:
             # In-place migrations for existing Postgres DBs (CREATE IF NOT EXISTS
             # can't add columns to a table that already exists).
             for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",
-                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_curator INTEGER DEFAULT 0"):
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_curator INTEGER DEFAULT 0",
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT ''"):
                 try: self.conn.execute(stmt)
                 except Exception: pass
             self.conn.commit()
+            self._backfill_account_type()
             return
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS users (
@@ -197,6 +200,7 @@ class Database:
                 plan         TEXT DEFAULT 'free',
                 is_admin     INTEGER DEFAULT 0,
                 is_curator   INTEGER DEFAULT 0,
+                account_type TEXT DEFAULT '',
                 created_at   TEXT DEFAULT (datetime('now'))
             );
 
@@ -385,6 +389,10 @@ class Database:
         # is_curator: cuenta que SOLO puede subir por otros y crear artistas (bot de curación)
         if 'is_curator' not in user_cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN is_curator INTEGER DEFAULT 0")
+        # account_type: 'artist' | 'listener'. Se elige al registrarse, gratis.
+        if 'account_type' not in user_cols:
+            self.conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT ''")
+        self._backfill_account_type()
 
         track_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tracks)").fetchall()]
         if 'media_type' not in track_cols:
@@ -445,12 +453,23 @@ class Database:
             ''')
             self.set_setting('collabs_backfilled', '1')
 
+    def _backfill_account_type(self):
+        """Cuentas antiguas sin tipo: artista si tiene plan de artista o ha subido algo;
+        si no, oyente. Solo toca filas con account_type vacío (idempotente)."""
+        self.conn.execute("""UPDATE users SET account_type='artist'
+            WHERE (account_type IS NULL OR account_type='')
+              AND (plan IN ('pro','premium') OR is_admin=1 OR is_curator=1
+                   OR id IN (SELECT user_id FROM tracks))""")
+        self.conn.execute("""UPDATE users SET account_type='listener'
+            WHERE account_type IS NULL OR account_type=''""")
+        self.conn.commit()
+
     # ── Users ─────────────────────────────────────────────────────────────────
 
-    def create_user(self, username, email, password_hash, display_name=None):
+    def create_user(self, username, email, password_hash, display_name=None, account_type='listener'):
         return self._insert_id(
-            'INSERT INTO users (username, email, password_hash, display_name) VALUES (?,?,?,?)',
-            (username, email, password_hash, display_name or username)
+            'INSERT INTO users (username, email, password_hash, display_name, account_type) VALUES (?,?,?,?,?)',
+            (username, email, password_hash, display_name or username, account_type)
         )
 
     def get_user_by_id(self, uid):
@@ -466,7 +485,7 @@ class Database:
         return dict(r) if r else None
 
     def update_user(self, uid, **kwargs):
-        allowed = {'display_name','bio','avatar','plan','is_admin','is_curator'}
+        allowed = {'display_name','bio','avatar','plan','is_admin','is_curator','account_type'}
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:
             return
@@ -1169,6 +1188,8 @@ class Database:
             req = self.conn.execute('SELECT user_id, plan FROM subscription_requests WHERE id=?', (req_id,)).fetchone()
             if req:
                 self.conn.execute('UPDATE users SET plan=? WHERE id=?', (req['plan'], req['user_id']))
+                if req['plan'] in ('pro', 'premium'):
+                    self.conn.execute("UPDATE users SET account_type='artist' WHERE id=?", (req['user_id'],))
         self.conn.commit()
 
     # ── Account claims (an artist claiming a pre-created account) ────────────────

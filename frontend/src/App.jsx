@@ -6,6 +6,7 @@ import { initOfflineSync } from './offline'
 import Navbar    from './components/Navbar'
 import BottomNav from './components/BottomNav'
 import InstallPrompt from './components/InstallPrompt'
+import WhatsAppButton from './components/WhatsAppButton'
 import { Toaster } from 'sonner'
 import Home      from './pages/Home'
 import Explore   from './pages/Explore'
@@ -60,6 +61,7 @@ export default function App() {
         </div>
         <BottomNav />
         <InstallPrompt />
+        <WhatsAppButton />
         {/* Toasts sit just above the mini player and the phone tab bar. */}
         <Toaster theme="dark" position="bottom-center"
           offset={{ bottom: 'calc(var(--player-h) + var(--bottomnav-h) + 12px)' }}

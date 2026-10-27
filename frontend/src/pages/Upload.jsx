@@ -28,7 +28,7 @@ export default function Upload() {
           <p style={{color:'var(--text2)',marginBottom:20,textAlign:'center',maxWidth:320}}>
             Para subir y compartir tu música necesitas un plan de artista: Pro o Premium.
           </p>
-          <button className="btn-primary" onClick={() => navigate('/subscribe')}>
+          <button className="btn-primary" onClick={() => navigate('/subscribe?tab=artist')}>
             Ver planes de artista
           </button>
         </div>

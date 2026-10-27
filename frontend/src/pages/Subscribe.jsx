@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getSubInfo, getMySubRequest, requestSub } from '../api'
+import { getSubInfo, getMySubRequest, requestSub, setAccountType } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { PLAN_LABEL } from '../plans'
 import { prefersReducedMotion, springTo } from '../motion'
 
 export default function Subscribe() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
+  const [switching, setSwitching] = useState(false)
   const navigate = useNavigate()
   const [info, setInfo]         = useState(null)
   const [myReq, setMyReq]       = useState(null)
@@ -19,7 +20,7 @@ export default function Subscribe() {
   const [error, setError]       = useState('')
   // Oyentes / Artistas switcher. `group` follows the tab at once; `shownGroup`
   // swaps a beat later so the old cards blur out before the new ones blur in.
-  const [group, setGroup]       = useState(() => ['pro', 'premium'].includes(user?.plan) ? 'artist' : 'listen')
+  const [group, setGroup]       = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'artist' || user?.account_type === 'artist' || ['pro', 'premium'].includes(user?.plan)) ? 'artist' : 'listen')
   const [shownGroup, setShownGroup] = useState(group)
   const swapTimer = useRef(null)
   useEffect(() => () => clearTimeout(swapTimer.current), [])
@@ -165,6 +166,16 @@ export default function Subscribe() {
   const freeDl = info?.free_download_limit || 3
 
   const choose = p => user.plan === p ? null : () => setSelected(p)
+  const isArtist = user.account_type === 'artist' || ['pro', 'premium'].includes(user.plan)
+  // Los planes de artista solo se compran desde una cuenta de artista.
+  const chooseArtist = p => isArtist ? choose(p) : null
+
+  async function becomeArtist() {
+    setSwitching(true); setError('')
+    try { await setAccountType('artist'); await refreshUser() }
+    catch (err) { setError(err.message) }
+    finally { setSwitching(false) }
+  }
 
   return (
     <div style={{padding:'24px 16px 40px',maxWidth:960,margin:'0 auto'}}>
@@ -187,12 +198,24 @@ export default function Subscribe() {
             features={['Escucha sin límites', `${dl} descargas al mes`, 'Control total del reproductor']}
             current={user.plan === 'amante'} onSelect={choose('amante')} />
         </> : <>
+          {!isArtist && (
+            <div style={s.artistNote}>
+              <div style={{fontWeight:700,marginBottom:4}}>🎤 Tu cuenta es de oyente</div>
+              <div style={{fontSize:13,color:'var(--text2)',marginBottom:12}}>
+                Para elegir un plan de artista, primero cambia tu cuenta a artista. Es gratis.
+              </div>
+              {error && <div style={s.error}>{error}</div>}
+              <button className="btn-primary" onClick={becomeArtist} disabled={switching}>
+                {switching ? 'Cambiando...' : 'Cambiar a cuenta de artista'}
+              </button>
+            </div>
+          )}
           <PlanCard name="Pro" color="var(--blue)" price={PRICE.pro}
             features={['Escucha sin límites', `${dl} descargas al mes`, `Sube ${proUp} canciones o videos al mes`]}
-            current={user.plan === 'pro'} onSelect={choose('pro')} />
+            current={user.plan === 'pro'} onSelect={chooseArtist('pro')} />
           <PlanCard name="Premium" color="var(--gold)" price={PRICE.premium}
             features={['Escucha y videos sin límites', 'Descargas ilimitadas', `Sube ${premUp} canciones o videos al mes`]}
-            current={user.plan === 'premium'} onSelect={choose('premium')} gold />
+            current={user.plan === 'premium'} onSelect={chooseArtist('premium')} gold />
         </>}
       </div>
     </div>
@@ -280,6 +303,7 @@ const s = {
   tabs: {position:'relative',display:'inline-flex',padding:4,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:999},
   tabInd: {position:'absolute',left:0,top:4,bottom:4,width:0,borderRadius:999,background:'var(--accent)'},
   tab: {position:'relative',padding:'10px 18px',borderRadius:999,fontSize:14,fontWeight:700,color:'var(--text2)',transition:'color 120ms var(--ease-out), transform 160ms var(--ease-out)',whiteSpace:'nowrap'},
+  artistNote: {gridColumn:'1 / -1',background:'var(--bg2)',border:'1px dashed var(--border)',borderRadius:14,padding:'16px 18px',textAlign:'center'},
   grid: {display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(215px,1fr))',gap:16},
   planCard: {background:'var(--bg2)',border:'2px solid var(--border)',borderRadius:14,padding:'20px 18px',display:'flex',flexDirection:'column'},
   featureList: {listStyle:'none',display:'flex',flexDirection:'column',gap:8,margin:'14px 0 18px',flex:1,padding:0},

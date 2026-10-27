@@ -72,6 +72,7 @@ export const login          = body => post('/auth/login',    body)
 export const getMe          = ()   => get('/auth/me')
 export const changePassword = body => post('/auth/change-password', body)
 export const changeEmail    = body => post('/auth/change-email', body)
+export const setAccountType = type => post('/auth/account-type', { account_type: type })
 
 // Users
 export const getUser        = id  => get(`/users/${id}`)

@@ -155,6 +155,9 @@ class RegisterBody(BaseModel):
     email: str
     password: str
     display_name: Optional[str] = None
+    account_type: str = 'listener'   # 'artist' | 'listener' — se elige gratis al registrarse
+
+ACCOUNT_TYPES = ('artist', 'listener')
 
 class LoginBody(BaseModel):
     email: str
@@ -172,10 +175,13 @@ def register(body: RegisterBody):
         raise HTTPException(409, "Ese email ya está registrado")
     if len(body.password) < 6:
         raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
-    uid = db.create_user(body.username, body.email, hash_password(body.password), body.display_name)
+    if body.account_type not in ACCOUNT_TYPES:
+        raise HTTPException(400, "Elige si tu cuenta es de artista o de oyente")
+    uid = db.create_user(body.username, body.email, hash_password(body.password),
+                         body.display_name, body.account_type)
     # First user becomes admin with the top plan
     if uid == 1:
-        db.update_user(uid, is_admin=1, plan='premium')
+        db.update_user(uid, is_admin=1, plan='premium', account_type='artist')
     user = db.get_user_by_id(uid)
     return {"token": create_token(uid), "user": _safe_user(user)}
 
@@ -191,6 +197,20 @@ def login(body: LoginBody):
 @app.get("/api/auth/me")
 def me(user=Depends(require_user)):
     return _safe_user(user)
+
+class AccountTypeBody(BaseModel):
+    account_type: str
+
+@app.post("/api/auth/account-type")
+def set_account_type(body: AccountTypeBody, user=Depends(require_user)):
+    """Cambiar entre cuenta de artista y de oyente (gratis). Quien tiene un plan
+    de artista activo (Pro/Premium) no puede pasar a oyente."""
+    if body.account_type not in ACCOUNT_TYPES:
+        raise HTTPException(400, "Tipo de cuenta inválido")
+    if body.account_type == 'listener' and user['plan'] in UPLOADER_PLANS:
+        raise HTTPException(400, "Tienes un plan de artista activo")
+    db.update_user(user['id'], account_type=body.account_type)
+    return _safe_user(db.get_user_by_id(user['id']))
 
 class ChangePasswordBody(BaseModel):
     current_password: str
@@ -225,6 +245,7 @@ def change_email(body: ChangeEmailBody, user=Depends(require_user)):
 def _safe_user(u):
     d = {k: u[k] for k in ('id','username','email','display_name','bio','avatar','plan','is_admin','created_at')}
     d['is_curator'] = int(u['is_curator']) if 'is_curator' in u.keys() else 0
+    d['account_type'] = (u.get('account_type') if hasattr(u, 'get') else u['account_type']) or 'listener'
     d.update(_plan_caps(u))
     return d
 
@@ -641,7 +662,7 @@ def ensure_artist(body: EnsureArtistBody, user=Depends(require_curator)):
     if db.get_user_by_email(email):
         raise HTTPException(409, "Ese email ya está registrado")
     display = body.display_name.strip() or username
-    uid = db.create_user(username, email, hash_password(body.password), display)
+    uid = db.create_user(username, email, hash_password(body.password), display, 'artist')
     db.update_user(uid, plan='premium')   # las 'free' no pueden ser dueñas para subir cómodamente
     return {"id": uid, "created": True}
 
@@ -965,6 +986,8 @@ async def request_subscription(
 ):
     if plan not in ('amante', 'pro', 'premium'):
         raise HTTPException(400, "Plan inválido")
+    if plan in UPLOADER_PLANS and (user.get('account_type') or 'listener') != 'artist':
+        raise HTTPException(400, "Los planes Pro y Premium son para cuentas de artista")
     if user['plan'] == plan:
         raise HTTPException(400, f"Ya tienes el plan {plan}")
     ext = Path(receipt.filename or '').suffix.lower()
@@ -1027,6 +1050,8 @@ def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admi
         if body.plan not in PLANS:
             raise HTTPException(400, "Plan inválido")
         kwargs['plan'] = body.plan
+        if body.plan in UPLOADER_PLANS:
+            kwargs['account_type'] = 'artist'
     if body.is_admin is not None: kwargs['is_admin'] = body.is_admin
     if body.is_curator is not None: kwargs['is_curator'] = body.is_curator
     db.update_user(uid, **kwargs)
