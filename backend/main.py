@@ -1188,6 +1188,27 @@ def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admi
     db.update_user(uid, **kwargs)
     return db.get_user_by_id(uid)
 
+class ResetPasswordBody(BaseModel):
+    password: Optional[str] = None   # vacío = generar una contraseña temporal
+
+@app.post("/api/admin/users/{uid}/reset-password")
+def admin_reset_password(uid: int, body: ResetPasswordBody, user=Depends(require_admin)):
+    """Para usuarios que olvidaron su contraseña: el admin pone una nueva (o se
+    genera una temporal) y se la pasa al usuario, que luego puede cambiarla en
+    'Mi cuenta'. La contraseña anterior deja de funcionar."""
+    target = db.get_user_by_id(uid)
+    if not target:
+        raise HTTPException(404, "Usuario no encontrado")
+    pw = (body.password or '').strip()
+    if not pw:
+        import secrets as _secrets
+        alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'   # sin letras/números que se confunden
+        pw = ''.join(_secrets.choice(alphabet) for _ in range(8))
+    if len(pw) < 6:
+        raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
+    db.update_password(uid, hash_password(pw))
+    return {"ok": True, "username": target['username'], "email": target['email'], "password": pw}
+
 @app.get("/api/admin/subscriptions")
 def admin_sub_requests(status: str = '', user=Depends(require_admin)):
     return db.get_sub_requests(status or None)

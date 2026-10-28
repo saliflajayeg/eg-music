@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  adminStats, adminUsers, adminUpdateUser, adminTracks, deleteTrack, trackCoverUrl,
+  adminStats, adminUsers, adminUpdateUser, adminResetPassword, adminTracks, deleteTrack, trackCoverUrl,
   adminSubs, adminReviewSub, adminReceiptUrl, adminClaims, adminReviewClaim,
   adminGetSettings, adminSaveSettings, adminRoyalties, adminMarkPayout,
 } from '../api'
@@ -180,11 +180,36 @@ const PLAN_BADGE = { amante: 'badge-plan-amante', pro: 'badge-plan-pro', premium
 
 function UsersPanel({ filter = 'all', setFilter }) {
   const [users, setUsers] = useState([])
+  const [q, setQ]         = useState('')
+  const [pwFor, setPwFor] = useState(null)   // id del usuario con el formulario de contraseña abierto
+  const [pwVal, setPwVal] = useState('')
+  const [pwDone, setPwDone] = useState({})   // id -> {username,email,password}
+  const [pwErr, setPwErr] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
   const { user: me } = useAuth()
 
   useEffect(() => { adminUsers().then(setUsers).catch(() => {}) }, [])
 
-  const shown = filter === 'all' ? users : users.filter(u => (u.plan || 'free') === filter)
+  const term = q.trim().toLowerCase()
+  const shown = (filter === 'all' ? users : users.filter(u => (u.plan || 'free') === filter))
+    .filter(u => !term || [u.username, u.display_name, u.email].some(v => (v || '').toLowerCase().includes(term)))
+
+  async function resetPassword(u, generate) {
+    setPwErr('')
+    if (!generate && pwVal.trim().length < 6) { setPwErr('Mínimo 6 caracteres'); return }
+    setPwBusy(true)
+    try {
+      const r = await adminResetPassword(u.id, generate ? null : pwVal.trim())
+      setPwDone(d => ({ ...d, [u.id]: r }))
+      setPwFor(null); setPwVal('')
+    } catch (e) { setPwErr(e.message) }
+    finally { setPwBusy(false) }
+  }
+
+  function copyCreds(r) {
+    const text = `EG Music — tu nueva contraseña\nUsuario: ${r.username}\nContraseña: ${r.password}\nCámbiala cuando entres, en Mi cuenta.`
+    try { navigator.clipboard.writeText(text) } catch {}
+  }
 
   async function setPlan(uid, plan) {
     await adminUpdateUser(uid, { plan })
@@ -209,6 +234,8 @@ function UsersPanel({ filter = 'all', setFilter }) {
         ))}
         <span style={{fontSize:12,color:'var(--text3)',marginLeft:'auto'}}>{shown.length} usuario{shown.length===1?'':'s'}</span>
       </div>
+      <input className="input" placeholder="Buscar por nombre, usuario o email…" value={q}
+        onChange={e => setQ(e.target.value)} style={{marginBottom:12}} />
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {shown.map(u => (
           <div key={u.id} style={s.userRow}>
@@ -216,9 +243,26 @@ function UsersPanel({ filter = 'all', setFilter }) {
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                 <div style={{fontWeight:600}}>{u.display_name || u.username}</div>
                 {PLAN_BADGE[u.plan] && <span className={PLAN_BADGE[u.plan]}>{u.plan.toUpperCase()}</span>}
-                {u.is_admin && <span className="badge-admin">ADMIN</span>}
+                {!!u.is_admin && <span className="badge-admin">ADMIN</span>}
               </div>
-              <div style={{fontSize:12,color:'var(--text3)'}}>{u.email} · desde {u.created_at?.slice(0,10)}</div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>@{u.username} · {u.email} · desde {u.created_at?.slice(0,10)}</div>
+              {pwDone[u.id] && (
+                <div style={{marginTop:8,background:'var(--bg3)',border:'1px solid var(--accent)',borderRadius:8,padding:'10px 12px',fontSize:13}}>
+                  <div>✓ Contraseña cambiada. Pásale estos datos al usuario:</div>
+                  <div style={{marginTop:4}}>Usuario: <strong>{pwDone[u.id].username}</strong> · Contraseña: <strong style={{fontFamily:'monospace',fontSize:15}}>{pwDone[u.id].password}</strong></div>
+                  <button style={{...s.rejectBtn,marginTop:8}} onClick={() => copyCreds(pwDone[u.id])}>Copiar mensaje</button>
+                </div>
+              )}
+              {pwFor === u.id && (
+                <div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <input className="input" placeholder="Nueva contraseña (mín. 6)" value={pwVal}
+                    onChange={e => setPwVal(e.target.value)} style={{maxWidth:220}} autoFocus />
+                  <button style={s.approveBtn} disabled={pwBusy} onClick={() => resetPassword(u, false)}>Guardar</button>
+                  <button style={s.rejectBtn} disabled={pwBusy} onClick={() => resetPassword(u, true)}>Generar una</button>
+                  <button style={s.rejectBtn} onClick={() => { setPwFor(null); setPwErr('') }}>Cancelar</button>
+                  {pwErr && <span style={{color:'var(--danger)',fontSize:12}}>{pwErr}</span>}
+                </div>
+              )}
             </div>
             {u.id !== me?.id && (
               <div style={{display:'flex',gap:8,alignItems:'center',flexShrink:0,flexWrap:'wrap'}}>
@@ -234,6 +278,9 @@ function UsersPanel({ filter = 'all', setFilter }) {
                     </button>
                   ))}
                 </div>
+                <button style={s.rejectBtn} onClick={() => { setPwFor(pwFor === u.id ? null : u.id); setPwVal(''); setPwErr('') }}>
+                  🔑 Contraseña
+                </button>
                 <ToggleBtn
                   active={!!u.is_admin}
                   label={u.is_admin ? 'Quitar admin' : 'Hacer admin'}

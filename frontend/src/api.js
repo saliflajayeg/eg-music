@@ -148,6 +148,7 @@ export const adminReviewClaim  = (id, action) => post(`/admin/claims/${id}/revie
 export const claimSearchArtists = q           => get(`/claim/artists?q=${encodeURIComponent(q)}`)
 export const submitClaim        = body        => post('/claims', body)
 export const adminUpdateUser   = (id, body)   => patch(`/admin/users/${id}`, body)
+export const adminResetPassword = (id, password) => post(`/admin/users/${id}/reset-password`, { password: password || null })
 export const adminSubs         = (status='')  => get(`/admin/subscriptions?status=${status}`)
 export const adminReviewSub    = (id, body)   => post(`/admin/subscriptions/${id}/review`, body)
 export const adminReceiptUrl   = async id => {
