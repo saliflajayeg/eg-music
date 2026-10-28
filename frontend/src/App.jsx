@@ -25,6 +25,7 @@ import Downloads from './pages/Downloads'
 import Playlists      from './pages/Playlists'
 import PlaylistDetail from './pages/PlaylistDetail'
 import ClaimAccount   from './pages/ClaimAccount'
+import Royalties      from './pages/Royalties'
 
 export default function App() {
   // Push any offline plays to the server on startup and when back online.
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="/playlists"     element={<Playlists />} />
               <Route path="/playlist/:id"  element={<PlaylistDetail />} />
               <Route path="/reclamar"      element={<ClaimAccount />} />
+              <Route path="/regalias"      element={<Royalties />} />
               <Route path="*"          element={<Navigate to="/" />} />
             </Routes>
           </div>

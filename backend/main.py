@@ -691,10 +691,11 @@ async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = ''
     fname = t['filename']
     if q == 'sd' and t.get('sd_status') == 'ready' and t.get('sd_file'):
         fname = t['sd_file']
-    # dl=1 => saving for offline; count=0 => a quality switch / re-request.
-    # Neither should add a view; the play is counted once on the first load.
+    # La web y la app nuevas piden siempre count=0: la escucha se cuenta aparte
+    # (POST /api/plays) cuando se llevan 30 s escuchados y sabiendo quién escucha.
+    # count=1 solo llega de versiones antiguas de la app: se cuenta como anónima.
     if not dl and count:
-        db.increment_plays(track_id)
+        db.record_listen(track_id, None, source='legacy')
     # R2: hand the client a presigned url and let it stream straight from R2
     # (range requests + zero bandwidth on this server).
     if storage.enabled():
@@ -837,6 +838,127 @@ def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
     # Idempotent: dedupes on client_event_id so retries don't double-count.
     applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
     return {"applied": applied, "received": len(body.events)}
+
+# ── Escuchas (cuentan a partir de 30 segundos) ─────────────────────────────────
+
+class ListenBody(BaseModel):
+    track_id: int
+    client_event_id: Optional[str] = None
+
+@app.post("/api/plays")
+def record_play(body: ListenBody, user=Depends(get_current_user)):
+    """El reproductor llama aquí cuando alguien lleva 30 s escuchando una canción.
+    Funciona con o sin sesión (sin sesión = escucha anónima, no genera dinero)."""
+    counted = db.record_listen(body.track_id, user, source='web', client_event_id=body.client_event_id)
+    return {"counted": counted}
+
+# ── Regalías (reparto por oyente) ───────────────────────────────────────────────
+
+import re as _re
+from datetime import datetime as _dt
+
+def _amante_price():
+    """'2.000 XAF / mes' -> 2000"""
+    digits = _re.sub(r'[^0-9]', '', (db.get_setting('amante_price') or '').split('/')[0])
+    return int(digits) if digits else 0
+
+def _artist_percent():
+    try:
+        v = float(db.get_setting('royalty_artist_percent') or 70)
+        return v if 0 <= v <= 100 else 70.0
+    except ValueError:
+        return 70.0
+
+def _month(m):
+    if not m:
+        return _dt.utcnow().strftime('%Y-%m')
+    if not _re.fullmatch(r'\d{4}-\d{2}', m):
+        raise HTTPException(400, "Mes inválido (usa AAAA-MM)")
+    return m
+
+def _name(u):
+    return (u.get('display_name') or u.get('username') or '') if u else ''
+
+def _royalties(month):
+    return db.compute_royalties(month, _amante_price(), _artist_percent())
+
+@app.get("/api/royalties/me")
+def my_royalties(month: str = '', user=Depends(require_user)):
+    """'Mis regalías' del artista: lo ganado en el mes, quién le escucha y sus pagos."""
+    month = _month(month)
+    R = _royalties(month)
+    a = R['artists'].get(user['id']) or {'amount': 0, 'paid_listens': 0, 'free_listens': 0,
+                                         'anon_listens': 0, 'paid_listeners': 0, 'listeners': {}, 'tracks': {}}
+    users = db.users_brief(a['listeners'].keys())
+    tracks = db.tracks_brief(a['tracks'].keys())
+    listeners = sorted(({
+        'listener_id': lid, 'name': _name(users.get(lid)), 'username': (users.get(lid) or {}).get('username', ''),
+        'avatar': (users.get(lid) or {}).get('avatar', ''), 'paid': v['paid'],
+        'listens': round(v['listens'], 2), 'amount': round(v['amount'], 2)}
+        for lid, v in a['listeners'].items()), key=lambda x: (-x['amount'], -x['listens']))
+    track_rows = sorted(({
+        **{k: round(v, 2) if isinstance(v, float) else v for k, v in t.items()},
+        'title': (tracks.get(tid) or {}).get('title', '(canción borrada)')}
+        for tid, t in a['tracks'].items()), key=lambda x: (-x['amount'], -x['paid_listens']))
+    return {
+        'month': month, 'months': sorted(set(db.listen_months()) | {month}, reverse=True),
+        'price': R['price'], 'artist_percent': R['artist_percent'],
+        'contribution_per_listener': R['contribution_per_listener'],
+        'amount': round(a['amount'], 2),
+        'paid_listeners': a['paid_listeners'],
+        'paid_listens': round(a['paid_listens'], 2),
+        'free_listens': round(a['free_listens'], 2),
+        'anon_listens': round(a['anon_listens'], 2),
+        'listeners': listeners, 'tracks': track_rows,
+        'payouts': db.get_payouts(artist_id=user['id']),
+    }
+
+@app.get("/api/admin/royalties")
+def admin_royalties(month: str = '', user=Depends(require_admin)):
+    """Contabilidad completa del mes: cuánto entra, a quién va cada franco."""
+    month = _month(month)
+    R = _royalties(month)
+    ids = list(R['artists'].keys()) + [l['listener_id'] for l in R['ledger']]
+    users = db.users_brief(ids)
+    paid = {p['artist_id']: p for p in db.get_payouts(month=month)}
+    artists = sorted(({
+        'artist_id': aid, 'name': _name(users.get(aid)), 'username': (users.get(aid) or {}).get('username', ''),
+        'amount': round(a['amount'], 2), 'paid_listeners': a['paid_listeners'],
+        'paid_listens': round(a['paid_listens'], 2), 'free_listens': round(a['free_listens'], 2),
+        'anon_listens': round(a['anon_listens'], 2), 'payout': paid.get(aid)}
+        for aid, a in R['artists'].items()), key=lambda x: (-x['amount'], -x['paid_listens']))
+    ledger = sorted(({
+        'listener_id': l['listener_id'], 'name': _name(users.get(l['listener_id'])),
+        'username': (users.get(l['listener_id']) or {}).get('username', ''),
+        'contribution': round(l['contribution'], 2), 'listens': round(l['listens'], 2),
+        'allocations': [{'artist_id': x['artist_id'], 'name': _name(users.get(x['artist_id'])),
+                         'listens': round(x['listens'], 2), 'amount': round(x['amount'], 2)}
+                        for x in l['allocations']]}
+        for l in R['ledger']), key=lambda x: x['name'].lower())
+    return {
+        'month': month, 'months': sorted(set(db.listen_months()) | {month}, reverse=True),
+        'price': R['price'], 'artist_percent': R['artist_percent'],
+        'contribution_per_listener': R['contribution_per_listener'],
+        'paying_listeners': R['paying_listeners'],
+        'collected': R['collected'], 'to_artists': round(R['to_artists'], 2),
+        'platform': round(R['collected'] - R['to_artists'], 2),
+        'artists': artists, 'ledger': ledger,
+    }
+
+class PayoutBody(BaseModel):
+    artist_id: int
+    month: str
+    amount: int
+    note: str = ''
+
+@app.post("/api/admin/royalties/payout")
+def admin_mark_payout(body: PayoutBody, user=Depends(require_admin)):
+    """Apunta que a un artista ya se le pagó un mes (por Muni Dinero, etc.)."""
+    month = _month(body.month)
+    if body.amount < 0:
+        raise HTTPException(400, "Cantidad inválida")
+    db.mark_payout(body.artist_id, month, body.amount, body.note.strip()[:200], user['id'])
+    return {"ok": True}
 
 # ── Explore ─────────────────────────────────────────────────────────────────────
 
@@ -1023,6 +1145,7 @@ class SettingsBody(BaseModel):
     pro_upload_limit: Optional[str] = None
     premium_upload_limit: Optional[str] = None
     site_name: Optional[str] = None
+    royalty_artist_percent: Optional[str] = None
 
 @app.get("/api/admin/stats")
 def admin_stats(user=Depends(require_admin)):
@@ -1124,7 +1247,8 @@ def admin_get_settings(user=Depends(require_admin)):
 def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
     for key in ('payment_instructions', 'amante_price', 'pro_price', 'premium_price',
                 'free_download_limit', 'paid_download_limit',
-                'pro_upload_limit', 'premium_upload_limit', 'site_name'):
+                'pro_upload_limit', 'premium_upload_limit', 'site_name',
+                'royalty_artist_percent'):
         val = getattr(body, key)
         if val is not None:
             db.set_setting(key, val)

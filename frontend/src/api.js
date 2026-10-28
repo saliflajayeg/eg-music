@@ -125,6 +125,12 @@ export const trackArtists     = id         => get(`/tracks/${id}/artists`)
 
 // Offline sync
 export const postPlayEvents   = body       => post('/sync/plays', body)
+// Una escucha cuenta a los 30 s (funciona con o sin sesión).
+export const recordPlay       = (trackId, clientEventId) => post('/plays', { track_id: trackId, client_event_id: clientEventId })
+// Regalías
+export const getMyRoyalties   = month => get(`/royalties/me${month ? `?month=${month}` : ''}`)
+export const adminRoyalties   = month => get(`/admin/royalties${month ? `?month=${month}` : ''}`)
+export const adminMarkPayout  = body  => post('/admin/royalties/payout', body)
 // Downloads (plan-limited; call before saving a track offline)
 export const registerDownload = id         => post(`/downloads/${id}`)
 

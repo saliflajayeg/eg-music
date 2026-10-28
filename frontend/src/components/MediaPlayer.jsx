@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useMedia } from '../context/MediaContext'
 import { useAuth } from '../context/AuthContext'
 import { useIsMobile } from '../hooks'
-import { trackStreamUrl, trackCoverUrl, likeTrack, getFeed } from '../api'
+import { trackStreamUrl, trackCoverUrl, likeTrack, getFeed, recordPlay } from '../api'
 import { shareTrack } from '../share'
 import { localSrc, isDownloaded, queuePlay, isNative, downloadMedia, deleteDownload } from '../offline'
 import ArtistLine, { PERFORMING_ROLES } from './ArtistLine'
@@ -188,6 +188,9 @@ export default function MediaPlayer() {
   const countedRef = useRef(false)
   const lastIdRef  = useRef(null)
   const localPlayedRef = useRef(false)
+  // Segundos escuchados de verdad (no cuenta saltar hacia delante). La escucha
+  // se registra a los 30 s, o casi al final si la canción dura menos.
+  const listenedRef = useRef({ secs: 0, last: null })
   const usingSd = isVideo && (quality === 'sd' || (quality === 'auto' && sdReady && (connectionPrefersSd() || stalls >= 2)))
 
   // A new track (or re-opening the page) starts scrolled to the top.
@@ -319,14 +322,14 @@ export default function MediaPlayer() {
     let cancel = false
     ;(async () => {
       const isNewTrack = lastIdRef.current !== current.id
-      if (isNewTrack) { countedRef.current = false; localPlayedRef.current = false }
+      if (isNewTrack) { countedRef.current = false; localPlayedRef.current = false; listenedRef.current = { secs: 0, last: null } }
       const local = await localSrc(current.id)
       if (cancel) return
       if (local) { setLocal(true); setSrc(local) }
       else {
         setLocal(false)
         const q = usingSd ? 'sd' : undefined
-        setSrc(trackStreamUrl(current.id, { q, count: isNewTrack ? 1 : 0 }))
+        setSrc(trackStreamUrl(current.id, { q, count: 0 }))   // la escucha se cuenta a los 30 s
       }
       lastIdRef.current = current.id
     })()
@@ -353,9 +356,22 @@ export default function MediaPlayer() {
       if ('mediaSession' in navigator && v.duration && isFinite(v.duration)) {
         try { navigator.mediaSession.setPositionState({ duration: v.duration, position: Math.min(v.currentTime, v.duration), playbackRate: v.playbackRate || 1 }) } catch {}
       }
-      if (!countedRef.current && v.currentTime > 1) {
-        countedRef.current = true
-        if (isLocal) isDownloaded(current.id).then(d => { if (d && !localPlayedRef.current) { localPlayedRef.current = true; queuePlay(current.id) } })
+      if (!countedRef.current) {
+        const LS = listenedRef.current
+        const step = LS.last == null ? 0 : v.currentTime - LS.last
+        if (step > 0 && step < 2 && !v.paused) LS.secs += step   // solo tiempo escuchado, no saltos
+        LS.last = v.currentTime
+        const need = v.duration && isFinite(v.duration) && v.duration < 31 ? Math.max(1, v.duration - 1.5) : 30
+        if (LS.secs >= need) {
+          countedRef.current = true
+          const id = current.id
+          if (isLocal) {
+            isDownloaded(id).then(d => { if (d && !localPlayedRef.current) { localPlayedRef.current = true; queuePlay(id) } })
+          } else {
+            const eid = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+            recordPlay(id, eid).catch(() => { if (isNative()) queuePlay(id) })
+          }
+        }
       }
       // Endless play: as the song nears its end, make sure something is cued to
       // start "underneath" it, and warm that next track so the switch is seamless.
@@ -393,7 +409,7 @@ export default function MediaPlayer() {
     const onDur = () => setDur(isNaN(v.duration) ? 0 : v.duration)
     const onProg = () => { try { if (v.buffered.length) setBuf(v.buffered.end(v.buffered.length - 1)) } catch {} }
     const onEnd = () => {
-      if (repeat === 'one') { const x = videoRef.current; if (x) { x.currentTime = 0; x.play().catch(() => {}) } return }
+      if (repeat === 'one') { countedRef.current = false; listenedRef.current = { secs: 0, last: null }; const x = videoRef.current; if (x) { x.currentTime = 0; x.play().catch(() => {}) } return }
       const L = liveRef.current
       const hasNext = L.shuffle ? L.queue.length > 1 : !!resolveNext()
       if (hasNext) { next(); return }

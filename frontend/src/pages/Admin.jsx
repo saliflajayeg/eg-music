@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   adminStats, adminUsers, adminUpdateUser, adminTracks, deleteTrack, trackCoverUrl,
   adminSubs, adminReviewSub, adminReceiptUrl, adminClaims, adminReviewClaim,
-  adminGetSettings, adminSaveSettings, adminEarnings,
+  adminGetSettings, adminSaveSettings, adminRoyalties, adminMarkPayout,
 } from '../api'
+import { fmtXAF, fmtN, monthLabel } from './Royalties'
 import { useAuth } from '../context/AuthContext'
 
 export default function Admin() {
@@ -53,7 +54,7 @@ export default function Admin() {
             color:tab===t?'#fff':'var(--text2)',
             border:'1px solid var(--border)',cursor:'pointer',
           }}>
-            {t==='subs'?'Suscripciones':t==='claims'?'Reclamos':t==='users'?'Usuarios':t==='songs'?'Canciones':t==='earnings'?'Reparto':'Configuración'}
+            {t==='subs'?'Suscripciones':t==='claims'?'Reclamos':t==='users'?'Usuarios':t==='songs'?'Canciones':t==='earnings'?'Regalías':'Configuración'}
             {t==='subs' && stats?.pending_subscriptions > 0 && (
               <span style={s.badge}>{stats.pending_subscriptions}</span>
             )}
@@ -366,51 +367,114 @@ function SongsPanel({ onChange }) {
 }
 
 function EarningsPanel() {
-  const [rows, setRows] = useState(null)
+  const [month, setMonth] = useState('')
+  const [data, setData]   = useState(null)
+  const [open, setOpen]   = useState(null)      // listener_id expandido en el libro
+  const [view, setView]   = useState('artists') // 'artists' | 'ledger'
+  const [busy, setBusy]   = useState(null)
 
-  useEffect(() => { adminEarnings().then(setRows).catch(() => setRows([])) }, [])
+  function load(m) { adminRoyalties(m).then(d => { setData(d); if (!m) setMonth(d.month) }).catch(() => setData({ error: true })) }
+  useEffect(() => { load(month) }, [month])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (rows === null) return <p style={{color:'var(--text3)',marginTop:20}}>Cargando...</p>
+  if (data === null) return <p style={{color:'var(--text3)',marginTop:20}}>Cargando...</p>
+  if (data.error) return <p style={{color:'var(--danger)',marginTop:20}}>No se pudieron cargar las regalías.</p>
 
-  const totalCredited = rows.reduce((n, r) => n + r.credited_plays, 0)
+  async function markPaid(a) {
+    const val = window.prompt(`Cantidad pagada a ${a.name} por ${monthLabel(data.month)} (XAF):`, String(Math.round(a.amount)))
+    if (val == null) return
+    const amount = parseInt(String(val).replace(/[^0-9]/g, ''), 10)
+    if (!Number.isFinite(amount)) return
+    const note = window.prompt('Nota (opcional, ej: Muni Dinero 555 123 456):', a.payout?.note || '') || ''
+    setBusy(a.artist_id)
+    try { await adminMarkPayout({ artist_id: a.artist_id, month: data.month, amount, note }); load(data.month) }
+    finally { setBusy(null) }
+  }
+
+  const fmt = fmtN
 
   return (
     <div style={{marginTop:20}}>
+      <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+        <select className="input" value={data.month} onChange={e => setMonth(e.target.value)} style={{width:'auto',minWidth:170}}>
+          {data.months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+        </select>
+        <div style={{display:'flex',gap:6}}>
+          {[['artists','Por artista'],['ledger','Por oyente']].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)}
+              style={view === id ? s.approveBtn : s.rejectBtn}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={s.statsRow}>
+        {[
+          [fmtXAF(data.collected), `Recaudado (${data.paying_listeners} oyentes × ${fmtXAF(data.price)})`],
+          [fmtXAF(data.to_artists), `Para artistas (${data.artist_percent}%)`],
+          [fmtXAF(data.platform), `Para la plataforma (${100 - data.artist_percent}%)`],
+        ].map(([v, l]) => (
+          <div key={l} style={{...s.statCard,cursor:'default'}}>
+            <div style={{fontSize:20,fontWeight:800}}>{v}</div>
+            <div style={{fontSize:12,color:'var(--text3)',marginTop:4}}>{l}</div>
+          </div>
+        ))}
+      </div>
       <p style={{color:'var(--text3)',fontSize:12,marginBottom:16,lineHeight:1.6}}>
-        Reproducciones atribuidas a cada artista según su porcentaje en cada canción.
-        En una colaboración 60/40, una reproducción cuenta 0,6 para uno y 0,4 para el otro.
-        <br/>La app no reparte dinero automáticamente — esto es la base para calcularlo.
+        Reparto por oyente: el {data.artist_percent}% de cada oyente Amante va solo a los artistas que él escuchó, según cuánto.
+        Cuenta como escucha a partir de 30 s. Solo entran los oyentes Amante que escucharon algo en el mes;
+        el dinero de un Amante que no escuchó nada se queda en la plataforma. El precio sale de “Precio Amante” en Configuración.
       </p>
 
-      {rows.length === 0 ? (
-        <p style={{color:'var(--text3)'}}>Todavía no hay datos.</p>
-      ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          {rows.map(r => {
-            const share = totalCredited > 0 ? (r.credited_plays / totalCredited) * 100 : 0
-            return (
-              <div key={r.user_id} style={s.userRow}>
+      {view === 'artists' ? (
+        data.artists.length === 0 ? <p style={{color:'var(--text3)'}}>Sin escuchas este mes.</p> : (
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {data.artists.map(a => (
+              <div key={a.artist_id} style={s.userRow}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:600}}>{r.display_name || r.username}</div>
+                  <div style={{fontWeight:600}}>{a.name || a.username}</div>
                   <div style={{fontSize:12,color:'var(--text3)'}}>
-                    {r.tracks} {r.tracks === 1 ? 'canción' : 'canciones'} · {r.total_plays} reproducciones totales
+                    {a.paid_listeners} oyentes de pago · {fmt(a.paid_listens)} escuchas de pago · {fmt(a.free_listens)} gratis · {fmt(a.anon_listens)} sin cuenta
                   </div>
-                  <div style={s.bar}>
-                    <div style={{...s.barFill, width:`${Math.min(100, share)}%`}} />
-                  </div>
+                  {a.payout && <div style={{fontSize:12,color:'var(--accent)',marginTop:2}}>✓ Pagado {fmtXAF(a.payout.amount)}{a.payout.note ? ` · ${a.payout.note}` : ''}</div>}
                 </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
-                  <div style={{fontSize:18,fontWeight:800,color:'var(--accent)'}}>
-                    {r.credited_plays.toFixed(1)}
-                  </div>
-                  <div style={{fontSize:11,color:'var(--text3)'}}>
-                    {share.toFixed(1)}% del total
-                  </div>
+                <div style={{textAlign:'right',flexShrink:0,display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}}>
+                  <div style={{fontSize:18,fontWeight:800,color:'var(--accent)'}}>{fmtXAF(a.amount)}</div>
+                  {a.amount > 0 && (
+                    <button style={s.rejectBtn} disabled={busy === a.artist_id} onClick={() => markPaid(a)}>
+                      {a.payout ? 'Editar pago' : 'Marcar pagado'}
+                    </button>
+                  )}
                 </div>
               </div>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        )
+      ) : (
+        data.ledger.length === 0 ? <p style={{color:'var(--text3)'}}>Ningún oyente de pago escuchó música este mes.</p> : (
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {data.ledger.map(l => (
+              <div key={l.listener_id} style={{...s.userRow,flexDirection:'column',alignItems:'stretch',cursor:'pointer'}}
+                onClick={() => setOpen(open === l.listener_id ? null : l.listener_id)}>
+                <div style={{display:'flex',gap:12,alignItems:'center'}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600}}>{l.name || l.username}</div>
+                    <div style={{fontSize:12,color:'var(--text3)'}}>{fmt(l.listens)} escuchas · {l.allocations.length} artistas</div>
+                  </div>
+                  <div style={{fontWeight:800}}>{fmtXAF(l.contribution)} {open === l.listener_id ? '▴' : '▾'}</div>
+                </div>
+                {open === l.listener_id && (
+                  <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:4,borderTop:'1px solid var(--border)',paddingTop:10}}>
+                    {l.allocations.map(x => (
+                      <div key={x.artist_id} style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+                        <span>{x.name} <span style={{color:'var(--text3)'}}>· {fmt(x.listens)} escuchas</span></span>
+                        <strong>{fmtXAF(x.amount)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   )
@@ -467,6 +531,10 @@ function SettingsPanel() {
             value={cfg.premium_upload_limit||''} onChange={e => setCfg({...cfg,premium_upload_limit:e.target.value})} />
         </label>
       </div>
+      <label style={s.label}>% de cada oyente Amante para los artistas (regalías)
+        <input className="input" type="number" min="0" max="100" style={{marginTop:6}} placeholder="70"
+          value={cfg.royalty_artist_percent||''} onChange={e => setCfg({...cfg,royalty_artist_percent:e.target.value})} />
+      </label>
       <label style={s.label}>Instrucciones de pago
         <textarea className="input" rows={8} style={{marginTop:6,resize:'vertical'}}
           value={cfg.payment_instructions||''} onChange={e => setCfg({...cfg,payment_instructions:e.target.value})} />

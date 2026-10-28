@@ -68,6 +68,11 @@ export default function Navbar() {
                     📥 Mis descargas
                   </Link>
                 )}
+                {(user.account_type === 'artist' || user.can_upload) && (
+                  <Link to="/regalias" style={s.dropItem} onClick={() => setMenuOpen(false)}>
+                    💰 Mis regalías
+                  </Link>
+                )}
                 <Link to="/colaboraciones" style={s.dropItem} onClick={() => setMenuOpen(false)}>
                   🤝 Colaboraciones
                   {collabCount > 0 && <span style={s.badge}>{collabCount}</span>}

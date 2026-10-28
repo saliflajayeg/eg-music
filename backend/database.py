@@ -187,6 +187,7 @@ class Database:
                 except Exception: pass
             self.conn.commit()
             self._backfill_account_type()
+            self._create_royalty_tables()
             return
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS users (
@@ -393,6 +394,7 @@ class Database:
         if 'account_type' not in user_cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT ''")
         self._backfill_account_type()
+        self._create_royalty_tables()
 
         track_cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tracks)").fetchall()]
         if 'media_type' not in track_cols:
@@ -794,6 +796,201 @@ class Database:
         self.conn.commit()
         return dict(r) if r else None
 
+    # ── Escuchas y regalías ───────────────────────────────────────────────────
+    #
+    # listens: una fila por escucha que cuenta (>= 30 s escuchados). Guarda quién
+    # escuchó y con qué plan en ese momento, para poder repartir el dinero de
+    # cada oyente de pago entre los artistas que él escuchó (modelo por oyente).
+    # Sin claves foráneas a propósito: es el libro de contabilidad y no debe
+    # perder filas si se borra una cuenta o una canción.
+
+    def _create_royalty_tables(self):
+        pk = 'SERIAL PRIMARY KEY' if self.pg else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+        for stmt in (
+            f"""CREATE TABLE IF NOT EXISTS listens (
+                id              {pk},
+                track_id        INTEGER NOT NULL,
+                listener_id     INTEGER,
+                listener_plan   TEXT DEFAULT '',
+                is_self         INTEGER DEFAULT 0,
+                source          TEXT DEFAULT 'web',
+                client_event_id TEXT UNIQUE,
+                played_at       TEXT NOT NULL,
+                month           TEXT NOT NULL
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_listens_month ON listens(month)",
+            "CREATE INDEX IF NOT EXISTS idx_listens_track ON listens(track_id, month)",
+            "CREATE INDEX IF NOT EXISTS idx_listens_listener ON listens(listener_id, track_id, played_at)",
+            f"""CREATE TABLE IF NOT EXISTS royalty_payouts (
+                id         {pk},
+                artist_id  INTEGER NOT NULL,
+                month      TEXT NOT NULL,
+                amount     INTEGER NOT NULL,
+                note       TEXT DEFAULT '',
+                paid_by    INTEGER,
+                paid_at    TEXT NOT NULL,
+                UNIQUE (artist_id, month)
+            )""",
+        ):
+            self.conn.execute(stmt)
+        self.conn.commit()
+
+    def track_artist_shares(self, track_ids=None):
+        """{track_id: [(artist_id, fraction)]} — owner + accepted collaborators.
+        Canciones sin filas en track_artists: el dueño se lleva el 100%."""
+        shares = {}
+        for r in self.conn.execute(
+                "SELECT track_id, user_id, percent FROM track_artists WHERE status='accepted'").fetchall():
+            shares.setdefault(r['track_id'], []).append((r['user_id'], float(r['percent'] or 0) / 100.0))
+        for r in self.conn.execute('SELECT id, user_id FROM tracks').fetchall():
+            if not shares.get(r['id']) or sum(f for _, f in shares[r['id']]) <= 0:
+                shares[r['id']] = [(r['user_id'], 1.0)]
+        return shares
+
+    def record_listen(self, track_id, listener, source='web', client_event_id=None, played_at=None):
+        """Guarda una escucha. Devuelve True si se contó. Un mismo oyente no suma
+        dos escuchas de la misma canción en menos de 30 segundos."""
+        from datetime import datetime, timedelta
+        t = self.conn.execute('SELECT id, user_id FROM tracks WHERE id=?', (track_id,)).fetchone()
+        if not t:
+            return False
+        now = datetime.utcnow()
+        when = now
+        if played_at:   # escuchas sin conexión: la hora en que se escuchó de verdad
+            try:
+                when = datetime.fromisoformat(str(played_at).replace('Z', '+00:00')).replace(tzinfo=None)
+                if when > now or when < now - timedelta(days=120):
+                    when = now
+            except ValueError:
+                when = now
+        stamp = when.strftime('%Y-%m-%d %H:%M:%S')
+        lid = listener['id'] if listener else None
+        if lid:
+            since = (when - timedelta(seconds=30)).strftime('%Y-%m-%d %H:%M:%S')
+            dup = self.conn.execute(
+                'SELECT 1 FROM listens WHERE listener_id=? AND track_id=? AND played_at>=? AND played_at<=?',
+                (lid, track_id, since, stamp)).fetchone()
+            if dup:
+                return False
+        is_self = 0
+        if lid:
+            if t['user_id'] == lid or self.conn.execute(
+                    "SELECT 1 FROM track_artists WHERE track_id=? AND user_id=? AND status='accepted'",
+                    (track_id, lid)).fetchone():
+                is_self = 1
+        plan = (listener['plan'] or '') if listener else ''
+        cur = self.conn.execute(
+            'INSERT OR IGNORE INTO listens (track_id, listener_id, listener_plan, is_self, source, client_event_id, played_at, month) '
+            'VALUES (?,?,?,?,?,?,?,?)',
+            (track_id, lid, plan, is_self, source, client_event_id or None, stamp, stamp[:7]))
+        if not cur.rowcount:      # client_event_id repetido: ya se contó
+            self.conn.commit()
+            return False
+        self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (track_id,))
+        self.conn.commit()
+        return True
+
+    def listen_months(self):
+        return [r['month'] for r in self.conn.execute(
+            'SELECT DISTINCT month FROM listens ORDER BY month DESC').fetchall()]
+
+    def compute_royalties(self, month, price, artist_percent):
+        """Reparto por oyente: el {artist_percent}% de lo que paga cada oyente de
+        pago (plan Amante) se divide entre los artistas que ESE oyente escuchó en
+        el mes, según cuánto los escuchó (y el % de cada artista en la canción).
+        No cuentan las escuchas de un artista a sus propias canciones."""
+        shares = self.track_artist_shares()
+        rows = self.conn.execute(
+            'SELECT track_id, listener_id, listener_plan, is_self FROM listens WHERE month=?',
+            (month,)).fetchall()
+        contribution = price * artist_percent / 100.0
+        artists = {}   # artist_id -> stats
+        def A(aid):
+            return artists.setdefault(aid, {
+                'artist_id': aid, 'amount': 0.0, 'paid_listens': 0.0, 'free_listens': 0.0,
+                'anon_listens': 0.0, 'paid_listeners': set(), 'listeners': {}, 'tracks': {}})
+        per_listener = {}   # listener_id -> {artist_id: weight}
+        for r in rows:
+            if r['is_self']:
+                continue
+            tid, lid = r['track_id'], r['listener_id']
+            paid = r['listener_plan'] == 'amante' and lid is not None
+            for aid, frac in shares.get(tid, []):
+                a = A(aid)
+                tr = a['tracks'].setdefault(tid, {'track_id': tid, 'paid_listens': 0.0, 'free_listens': 0.0, 'anon_listens': 0.0, 'amount': 0.0})
+                if lid is None:
+                    a['anon_listens'] += frac; tr['anon_listens'] += frac
+                    continue
+                li = a['listeners'].setdefault(lid, {'listener_id': lid, 'paid': False, 'listens': 0.0, 'amount': 0.0})
+                li['listens'] += frac
+                if paid:
+                    li['paid'] = True
+                    a['paid_listens'] += frac; tr['paid_listens'] += frac
+                    a['paid_listeners'].add(lid)
+                    w = per_listener.setdefault(lid, {})
+                    w[(aid, tid)] = w.get((aid, tid), 0.0) + frac
+                else:
+                    a['free_listens'] += frac; tr['free_listens'] += frac
+        ledger = []
+        for lid, weights in per_listener.items():
+            total = sum(weights.values())
+            if total <= 0:
+                continue
+            alloc = {}
+            for (aid, tid), w in weights.items():
+                amt = contribution * w / total
+                a = artists[aid]
+                a['amount'] += amt
+                a['tracks'][tid]['amount'] += amt
+                a['listeners'][lid]['amount'] += amt
+                x = alloc.setdefault(aid, {'artist_id': aid, 'listens': 0.0, 'amount': 0.0})
+                x['listens'] += w; x['amount'] += amt
+            ledger.append({'listener_id': lid, 'contribution': contribution,
+                           'listens': total, 'allocations': sorted(alloc.values(), key=lambda v: -v['amount'])})
+        for a in artists.values():
+            a['paid_listeners'] = len(a['paid_listeners'])
+        return {
+            'month': month, 'price': price, 'artist_percent': artist_percent,
+            'contribution_per_listener': contribution,
+            'paying_listeners': len(ledger),
+            'collected': price * len(ledger),
+            'to_artists': sum(l['contribution'] for l in ledger),
+            'artists': artists, 'ledger': ledger,
+        }
+
+    def get_payouts(self, artist_id=None, month=None):
+        q, p = 'SELECT * FROM royalty_payouts WHERE 1=1', []
+        if artist_id is not None: q += ' AND artist_id=?'; p.append(artist_id)
+        if month is not None:     q += ' AND month=?';     p.append(month)
+        return [dict(r) for r in self.conn.execute(q + ' ORDER BY month DESC', tuple(p)).fetchall()]
+
+    def mark_payout(self, artist_id, month, amount, note, admin_id):
+        if self.conn.execute('SELECT 1 FROM royalty_payouts WHERE artist_id=? AND month=?', (artist_id, month)).fetchone():
+            self.conn.execute(
+                "UPDATE royalty_payouts SET amount=?, note=?, paid_by=?, paid_at=datetime('now') WHERE artist_id=? AND month=?",
+                (amount, note, admin_id, artist_id, month))
+        else:
+            self.conn.execute(
+                "INSERT INTO royalty_payouts (artist_id, month, amount, note, paid_by, paid_at) VALUES (?,?,?,?,?,datetime('now'))",
+                (artist_id, month, amount, note, admin_id))
+        self.conn.commit()
+
+    def users_brief(self, ids):
+        ids = [i for i in set(ids) if i is not None]
+        if not ids:
+            return {}
+        marks = ','.join('?' * len(ids))
+        return {r['id']: dict(r) for r in self.conn.execute(
+            f'SELECT id, username, display_name, avatar, plan FROM users WHERE id IN ({marks})', tuple(ids)).fetchall()}
+
+    def tracks_brief(self, ids):
+        ids = [i for i in set(ids) if i is not None]
+        if not ids:
+            return {}
+        marks = ','.join('?' * len(ids))
+        return {r['id']: dict(r) for r in self.conn.execute(
+            f'SELECT id, title, artist, cover, media_type FROM tracks WHERE id IN ({marks})', tuple(ids)).fetchall()}
+
     def increment_plays(self, track_id):
         self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (track_id,))
         self.conn.commit()
@@ -942,27 +1139,17 @@ class Database:
         return [dict(r) for r in rows]
 
     def record_play_events(self, user_id, events):
-        """Apply offline play/view events idempotently. Each event has a
-        client-generated client_event_id; duplicates (retried syncs) are
-        ignored so play_count is never double-counted. Returns how many were
-        newly applied."""
+        """Escuchas sin conexión (archivos descargados) que el servidor no vio.
+        Idempotente: client_event_id evita contar dos veces un reintento."""
+        listener = self.get_user_by_id(user_id)
         applied = 0
         for ev in events:
             cid = (ev.get('client_event_id') or '').strip()
             tid = ev.get('track_id')
             if not cid or not tid:
                 continue
-            # Only count if this track exists and isn't already recorded.
-            if not self.conn.execute('SELECT 1 FROM tracks WHERE id=?', (tid,)).fetchone():
-                continue
-            cur = self.conn.execute(
-                'INSERT OR IGNORE INTO play_events (user_id, track_id, client_event_id, occurred_at) VALUES (?,?,?,?)',
-                (user_id, tid, cid, ev.get('played_at'))
-            )
-            if cur.rowcount:  # newly inserted -> count it once
-                self.conn.execute('UPDATE tracks SET play_count=play_count+1 WHERE id=?', (tid,))
+            if self.record_listen(tid, listener, source='offline', client_event_id=cid, played_at=ev.get('played_at')):
                 applied += 1
-        self.conn.commit()
         return applied
 
     # ── Likes ─────────────────────────────────────────────────────────────────
