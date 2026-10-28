@@ -418,6 +418,11 @@ function EarningsPanel() {
           </div>
         ))}
       </div>
+      {!data.live && (
+        <p style={{background:'rgba(245,180,0,.12)',border:'1px solid rgba(245,180,0,.45)',borderRadius:10,padding:'10px 14px',fontSize:13,marginBottom:12}}>
+          🚧 <strong>Monetización no activa:</strong> los artistas ven estas cifras como simulación. Actívala en Configuración cuando empecéis a pagar.
+        </p>
+      )}
       <p style={{color:'var(--text3)',fontSize:12,marginBottom:16,lineHeight:1.6}}>
         Reparto por oyente: el {data.artist_percent}% de cada oyente Amante va solo a los artistas que él escuchó, según cuánto.
         Cuenta como escucha a partir de 30 s. Solo entran los oyentes Amante que escucharon algo en el mes;
@@ -531,6 +536,13 @@ function SettingsPanel() {
             value={cfg.premium_upload_limit||''} onChange={e => setCfg({...cfg,premium_upload_limit:e.target.value})} />
         </label>
       </div>
+      <label style={s.label}>Monetización (regalías)
+        <select className="input" style={{marginTop:6}} value={cfg.royalties_live === '1' ? '1' : '0'}
+          onChange={e => setCfg({...cfg,royalties_live:e.target.value})}>
+          <option value="0">No activa — los artistas ven una simulación</option>
+          <option value="1">Activa — se paga a los artistas</option>
+        </select>
+      </label>
       <label style={s.label}>% de cada oyente Amante para los artistas (regalías)
         <input className="input" type="number" min="0" max="100" style={{marginTop:6}} placeholder="70"
           value={cfg.royalty_artist_percent||''} onChange={e => setCfg({...cfg,royalty_artist_percent:e.target.value})} />

@@ -879,6 +879,11 @@ def _month(m):
 def _name(u):
     return (u.get('display_name') or u.get('username') or '') if u else ''
 
+def _royalties_live():
+    """'1' cuando EG Music empiece a pagar de verdad. Mientras tanto, las regalías
+    se muestran como simulación para que los artistas entiendan el sistema."""
+    return (db.get_setting('royalties_live') or '0') == '1'
+
 def _royalties(month):
     return db.compute_royalties(month, _amante_price(), _artist_percent())
 
@@ -902,6 +907,7 @@ def my_royalties(month: str = '', user=Depends(require_user)):
         for tid, t in a['tracks'].items()), key=lambda x: (-x['amount'], -x['paid_listens']))
     return {
         'month': month, 'months': sorted(set(db.listen_months()) | {month}, reverse=True),
+        'live': _royalties_live(),
         'price': R['price'], 'artist_percent': R['artist_percent'],
         'contribution_per_listener': R['contribution_per_listener'],
         'amount': round(a['amount'], 2),
@@ -940,6 +946,7 @@ def admin_royalties(month: str = '', user=Depends(require_admin)):
         'price': R['price'], 'artist_percent': R['artist_percent'],
         'contribution_per_listener': R['contribution_per_listener'],
         'paying_listeners': R['paying_listeners'],
+        'live': _royalties_live(),
         'collected': R['collected'], 'to_artists': round(R['to_artists'], 2),
         'platform': round(R['collected'] - R['to_artists'], 2),
         'artists': artists, 'ledger': ledger,
@@ -1146,6 +1153,7 @@ class SettingsBody(BaseModel):
     premium_upload_limit: Optional[str] = None
     site_name: Optional[str] = None
     royalty_artist_percent: Optional[str] = None
+    royalties_live: Optional[str] = None
 
 @app.get("/api/admin/stats")
 def admin_stats(user=Depends(require_admin)):
@@ -1248,7 +1256,7 @@ def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
     for key in ('payment_instructions', 'amante_price', 'pro_price', 'premium_price',
                 'free_download_limit', 'paid_download_limit',
                 'pro_upload_limit', 'premium_upload_limit', 'site_name',
-                'royalty_artist_percent'):
+                'royalty_artist_percent', 'royalties_live'):
         val = getattr(body, key)
         if val is not None:
             db.set_setting(key, val)

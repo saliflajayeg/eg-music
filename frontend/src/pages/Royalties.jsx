@@ -51,7 +51,7 @@ export default function Royalties() {
       <div style={s.head}>
         <div>
           <h1 style={s.h1}>Mis regalías</h1>
-          <p style={s.sub}>Lo que ganas con tu música en EG Music.</p>
+          <p style={s.sub}>{data.live ? 'Lo que ganas con tu música en EG Music.' : 'Cómo ganarás dinero con tu música en EG Music.'}</p>
         </div>
         <select className="input" value={data.month} onChange={e => setMonth(e.target.value)} style={s.select}
           aria-label="Mes">
@@ -59,11 +59,22 @@ export default function Royalties() {
         </select>
       </div>
 
+      {!data.live && (
+        <div style={s.notLive} role="note">
+          <div style={{fontWeight:800,marginBottom:4}}>🚧 La monetización todavía no está activa</div>
+          EG Music aún no paga regalías. Esta página te enseña <strong>cómo se te pagará</strong> cuando empiece:
+          las cifras son una <strong>simulación</strong> hecha con tus escuchas reales, no dinero que se te deba.
+        </div>
+      )}
+
       <div style={s.hero}>
-        <div style={s.heroLabel}>Ganado en {monthLabel(data.month).toLowerCase()}</div>
-        <div style={s.heroAmount}>{fmtXAF(data.amount)}</div>
+        <div style={s.heroLabel}>
+          {data.live ? 'Ganado' : 'Simulación'} en {monthLabel(data.month).toLowerCase()}
+        </div>
+        <div style={{...s.heroAmount, opacity: data.live ? 1 : .75}}>{fmtXAF(data.amount)}</div>
         <div style={s.heroNote}>
-          {payout
+          {!data.live ? 'Esto es lo que habrías ganado si la monetización ya estuviera activa. No es dinero real todavía.'
+          : payout
             ? <span style={{color:'var(--accent)',fontWeight:700}}>✓ Pagado: {fmtXAF(payout.amount)}{payout.note ? ` · ${payout.note}` : ''}</span>
             : data.month === new Date().toISOString().slice(0, 7)
               ? 'Mes en curso: la cifra sube con cada escucha de pago.'
@@ -78,15 +89,26 @@ export default function Royalties() {
         <Stat value={fmtN(data.anon_listens)} label="Sin cuenta" />
       </div>
 
-      <details style={s.how}>
-        <summary style={{cursor:'pointer',fontWeight:700}}>¿Cómo se calcula?</summary>
+      <details style={s.how} open={!data.live}>
+        <summary style={{cursor:'pointer',fontWeight:700}}>{data.live ? '¿Cómo se calcula?' : '¿Cómo te pagaremos?'}</summary>
+        <ol style={s.howList}>
+          <li>Cada <strong>oyente de pago</strong> (plan Amante) paga {fmtXAF(data.price)} al mes.</li>
+          <li>El <strong>{data.artist_percent}%</strong> de lo que paga cada oyente ({fmtXAF(data.contribution_per_listener)}) es para los artistas.
+            El resto mantiene la plataforma.</li>
+          <li>Ese dinero se reparte <strong>solo entre los artistas que ese oyente escucha</strong>, según cuánto los escucha.
+            Si un fan solo te escucha a ti, sus {fmtXAF(data.contribution_per_listener)} son tuyos.</li>
+          <li>Una canción cuenta como escucha a partir de los <strong>30 segundos</strong>. En colaboraciones, cada escucha se divide
+            según el porcentaje de cada artista.</li>
+          <li>Las escuchas gratis y sin cuenta se muestran para que veas tu público, pero no generan dinero.
+            Tus propias escuchas no cuentan.</li>
+        </ol>
         <p style={s.howText}>
-          Cada oyente de pago paga {fmtXAF(data.price)} al mes. El {data.artist_percent}% ({fmtXAF(data.contribution_per_listener)})
-          se reparte <strong>solo entre los artistas que ese oyente escucha</strong>, según cuánto los escucha.
-          Una canción cuenta como escucha a partir de los 30 segundos. En colaboraciones, cada escucha se divide según
-          el porcentaje de cada artista. Las escuchas gratis y sin cuenta se muestran, pero no generan dinero.
-          Tus propias escuchas no cuentan.
+          <strong>Ejemplo:</strong> un fan escucha este mes 6 canciones tuyas y 4 de otro artista.
+          De sus {fmtXAF(data.contribution_per_listener)}, el 60% ({fmtXAF(data.contribution_per_listener * 0.6)}) es para ti
+          y el 40% ({fmtXAF(data.contribution_per_listener * 0.4)}) para el otro artista.
         </p>
+        <p style={s.howText}><strong>Consejo:</strong> lo que más te hace ganar es tener muchos fans que paguen y te escuchen a menudo.
+          Comparte tus canciones y anima a tu público a hacerse Amante.</p>
       </details>
 
       <h2 style={s.h2}>Quién te escucha</h2>
@@ -141,7 +163,8 @@ export default function Royalties() {
       )}
 
       <h2 style={s.h2}>Historial de pagos</h2>
-      {data.payouts.length === 0 ? <p style={s.empty}>Todavía no hay pagos registrados.</p> : (
+      {!data.live ? <p style={s.empty}>Los pagos empezarán cuando se active la monetización. Te avisaremos.</p>
+      : data.payouts.length === 0 ? <p style={s.empty}>Todavía no hay pagos registrados.</p> : (
         <div style={s.list}>
           {data.payouts.map(p => (
             <div key={p.id} style={s.row}>
@@ -185,6 +208,8 @@ const s = {
   stat: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 16px'},
   statValue: {fontSize:20,fontWeight:800,fontVariantNumeric:'tabular-nums'},
   statLabel: {fontSize:12,color:'var(--text3)',marginTop:2},
+  notLive: {background:'rgba(245,180,0,.12)',border:'1px solid rgba(245,180,0,.45)',color:'var(--text)',borderRadius:12,padding:'14px 16px',fontSize:13,lineHeight:1.55,marginBottom:12},
+  howList: {color:'var(--text2)',fontSize:13,lineHeight:1.6,margin:'10px 0 0',paddingLeft:20,display:'flex',flexDirection:'column',gap:6},
   how: {background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'12px 16px',fontSize:14},
   howText: {color:'var(--text2)',fontSize:13,lineHeight:1.6,marginTop:8},
   h2: {fontSize:17,fontWeight:700,margin:'26px 0 10px'},
