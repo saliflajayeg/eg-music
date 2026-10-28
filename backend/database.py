@@ -182,7 +182,8 @@ class Database:
             # can't add columns to a table that already exists).
             for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",
                          "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_curator INTEGER DEFAULT 0",
-                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT ''"):
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT ''",
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TEXT DEFAULT ''"):
                 try: self.conn.execute(stmt)
                 except Exception: pass
             self.conn.commit()
@@ -393,6 +394,8 @@ class Database:
         # account_type: 'artist' | 'listener'. Se elige al registrarse, gratis.
         if 'account_type' not in user_cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT ''")
+        if 'last_seen_at' not in user_cols:   # última vez que usó la app con sesión
+            self.conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT DEFAULT ''")
         self._backfill_account_type()
         self._create_royalty_tables()
 
@@ -515,10 +518,65 @@ class Database:
         self.conn.commit()
 
     def get_all_users(self):
-        rows = self.conn.execute(
-            'SELECT id,username,email,display_name,plan,is_admin,is_curator,created_at FROM users ORDER BY created_at DESC'
-        ).fetchall()
+        from datetime import datetime
+        month = datetime.utcnow().strftime('%Y-%m')
+        rows = self.conn.execute('''
+            SELECT u.id, u.username, u.email, u.display_name, u.plan, u.is_admin, u.is_curator,
+                   u.created_at, u.account_type, u.last_seen_at,
+                   (SELECT COUNT(*) FROM listens l WHERE l.listener_id=u.id AND l.month=?) AS listens_month,
+                   (SELECT MAX(played_at) FROM listens l WHERE l.listener_id=u.id) AS last_listen_at
+            FROM users u ORDER BY u.created_at DESC
+        ''', (month,)).fetchall()
         return [dict(r) for r in rows]
+
+    def touch_last_seen(self, user):
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        last = user.get('last_seen_at') or ''
+        if last and last >= (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S'):
+            return
+        stamp = now.strftime('%Y-%m-%d %H:%M:%S')
+        self.conn.execute('UPDATE users SET last_seen_at=? WHERE id=?', (stamp, user['id']))
+        self.conn.commit()
+        user['last_seen_at'] = stamp
+
+    def user_activity(self, uid, recent_limit=60):
+        """Qué escucha una cuenta: totales, canciones y artistas favoritos, e historial."""
+        from datetime import datetime
+        month = datetime.utcnow().strftime('%Y-%m')
+        rows = self.conn.execute(
+            'SELECT track_id, played_at, month, listener_plan, source FROM listens WHERE listener_id=? ORDER BY played_at DESC',
+            (uid,)).fetchall()
+        tracks = self.tracks_brief([r['track_id'] for r in rows])
+        shares = self.track_artist_shares() if rows else {}
+        artists = self.users_brief([a for r in rows for a, _ in shares.get(r['track_id'], [])])
+        def tname(tid): return (tracks.get(tid) or {}).get('title', '(canción borrada)')
+        def anames(tid):
+            return ', '.join((artists.get(a) or {}).get('display_name') or (artists.get(a) or {}).get('username', '')
+                             for a, _ in shares.get(tid, [])) or (tracks.get(tid) or {}).get('artist', '')
+        by_track, by_artist, by_month = {}, {}, {}
+        for r in rows:
+            t = by_track.setdefault(r['track_id'], {'track_id': r['track_id'], 'title': tname(r['track_id']),
+                                                    'artists': anames(r['track_id']), 'listens': 0, 'last': r['played_at']})
+            t['listens'] += 1
+            for a, frac in shares.get(r['track_id'], []):
+                x = by_artist.setdefault(a, {'artist_id': a, 'name': (artists.get(a) or {}).get('display_name')
+                                             or (artists.get(a) or {}).get('username', ''), 'listens': 0.0})
+                x['listens'] += frac
+            by_month[r['month']] = by_month.get(r['month'], 0) + 1
+        return {
+            'listens_total': len(rows),
+            'listens_month': by_month.get(month, 0),
+            'distinct_tracks': len(by_track),
+            'last_listen_at': rows[0]['played_at'] if rows else None,
+            'by_month': [{'month': m, 'listens': n} for m, n in sorted(by_month.items(), reverse=True)],
+            'top_tracks': sorted(by_track.values(), key=lambda v: -v['listens'])[:15],
+            'top_artists': [dict(v, listens=round(v['listens'], 1)) for v in
+                            sorted(by_artist.values(), key=lambda v: -v['listens'])[:10]],
+            'recent': [{'track_id': r['track_id'], 'title': tname(r['track_id']), 'artists': anames(r['track_id']),
+                        'played_at': r['played_at'], 'plan': r['listener_plan'], 'source': r['source']}
+                       for r in rows[:recent_limit]],
+        }
 
     def count_user_tracks(self, user_id):
         return self.conn.execute('SELECT COUNT(*) FROM tracks WHERE user_id=?', (user_id,)).fetchone()[0]

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  adminStats, adminUsers, adminUpdateUser, adminResetPassword, adminTracks, deleteTrack, trackCoverUrl,
+  adminStats, adminUsers, adminUpdateUser, adminResetPassword, adminUserActivity, adminTracks, deleteTrack, trackCoverUrl,
   adminSubs, adminReviewSub, adminReceiptUrl, adminClaims, adminReviewClaim,
   adminGetSettings, adminSaveSettings, adminRoyalties, adminMarkPayout,
 } from '../api'
@@ -181,6 +181,8 @@ const PLAN_BADGE = { amante: 'badge-plan-amante', pro: 'badge-plan-pro', premium
 function UsersPanel({ filter = 'all', setFilter }) {
   const [users, setUsers] = useState([])
   const [q, setQ]         = useState('')
+  const [sort, setSort]   = useState('recent')   // recent | seen | listens
+  const [actFor, setActFor] = useState(null)     // id con la ficha de actividad abierta
   const [pwFor, setPwFor] = useState(null)   // id del usuario con el formulario de contraseña abierto
   const [pwVal, setPwVal] = useState('')
   const [pwDone, setPwDone] = useState({})   // id -> {username,email,password}
@@ -193,6 +195,8 @@ function UsersPanel({ filter = 'all', setFilter }) {
   const term = q.trim().toLowerCase()
   const shown = (filter === 'all' ? users : users.filter(u => (u.plan || 'free') === filter))
     .filter(u => !term || [u.username, u.display_name, u.email].some(v => (v || '').toLowerCase().includes(term)))
+    .sort((a, b) => sort === 'seen' ? (b.last_seen_at || '').localeCompare(a.last_seen_at || '')
+                  : sort === 'listens' ? (b.listens_month || 0) - (a.listens_month || 0) : 0)
 
   async function resetPassword(u, generate) {
     setPwErr('')
@@ -234,11 +238,18 @@ function UsersPanel({ filter = 'all', setFilter }) {
         ))}
         <span style={{fontSize:12,color:'var(--text3)',marginLeft:'auto'}}>{shown.length} usuario{shown.length===1?'':'s'}</span>
       </div>
-      <input className="input" placeholder="Buscar por nombre, usuario o email…" value={q}
-        onChange={e => setQ(e.target.value)} style={{marginBottom:12}} />
+      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+        <input className="input" placeholder="Buscar por nombre, usuario o email…" value={q}
+          onChange={e => setQ(e.target.value)} style={{flex:1,minWidth:200}} />
+        <select className="input" value={sort} onChange={e => setSort(e.target.value)} style={{width:'auto'}}>
+          <option value="recent">Más nuevos primero</option>
+          <option value="seen">Última conexión</option>
+          <option value="listens">Más escuchas este mes</option>
+        </select>
+      </div>
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {shown.map(u => (
-          <div key={u.id} style={s.userRow}>
+          <div key={u.id} style={{...s.userRow,flexWrap:'wrap'}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                 <div style={{fontWeight:600}}>{u.display_name || u.username}</div>
@@ -246,6 +257,10 @@ function UsersPanel({ filter = 'all', setFilter }) {
                 {!!u.is_admin && <span className="badge-admin">ADMIN</span>}
               </div>
               <div style={{fontSize:12,color:'var(--text3)'}}>@{u.username} · {u.email} · desde {u.created_at?.slice(0,10)}</div>
+              <div style={{fontSize:12,color:'var(--text2)',marginTop:2}}>
+                🕒 Última conexión: <strong>{ago(u.last_seen_at)}</strong> · 🎧 {u.listens_month || 0} escuchas este mes
+                {u.last_listen_at ? <> · última escucha {ago(u.last_listen_at)}</> : null}
+              </div>
               {pwDone[u.id] && (
                 <div style={{marginTop:8,background:'var(--bg3)',border:'1px solid var(--accent)',borderRadius:8,padding:'10px 12px',fontSize:13}}>
                   <div>✓ Contraseña cambiada. Pásale estos datos al usuario:</div>
@@ -278,6 +293,9 @@ function UsersPanel({ filter = 'all', setFilter }) {
                     </button>
                   ))}
                 </div>
+                <button style={actFor === u.id ? s.approveBtn : s.rejectBtn} onClick={() => setActFor(actFor === u.id ? null : u.id)}>
+                  📊 Actividad
+                </button>
                 <button style={s.rejectBtn} onClick={() => { setPwFor(pwFor === u.id ? null : u.id); setPwVal(''); setPwErr('') }}>
                   🔑 Contraseña
                 </button>
@@ -289,9 +307,90 @@ function UsersPanel({ filter = 'all', setFilter }) {
                 />
               </div>
             )}
+            {actFor === u.id && <div style={{flexBasis:'100%'}}><ActivityCard uid={u.id} onClose={() => setActFor(null)} /></div>}
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// '2026-10-28 17:05:00' (UTC) -> 'hace 3 h', 'ayer', '12 oct'
+function ago(ts) {
+  if (!ts) return 'nunca'
+  const d = new Date(ts.replace(' ', 'T') + 'Z')
+  if (isNaN(d)) return ts
+  const min = Math.round((Date.now() - d.getTime()) / 60000)
+  if (min < 2) return 'ahora'
+  if (min < 60) return `hace ${min} min`
+  const h = Math.round(min / 60)
+  if (h < 24) return `hace ${h} h`
+  const days = Math.round(h / 24)
+  if (days === 1) return 'ayer'
+  if (days < 7) return `hace ${days} días`
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: days > 300 ? 'numeric' : undefined })
+}
+
+function when(ts) {
+  if (!ts) return ''
+  const d = new Date(ts.replace(' ', 'T') + 'Z')
+  return isNaN(d) ? ts : d.toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+const PLAN_NAME = { free: 'Gratis', amante: 'Amante', pro: 'Pro', premium: 'Premium' }
+
+// Ficha de actividad: qué escucha una cuenta, cuánto y cuándo.
+function ActivityCard({ uid, onClose }) {
+  const [a, setA] = useState(null)
+  const [all, setAll] = useState(false)
+  useEffect(() => { adminUserActivity(uid).then(setA).catch(() => setA({ error: true })) }, [uid])
+  const box = {marginTop:10,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',fontSize:13}
+  if (!a) return <div style={box}>Cargando actividad…</div>
+  if (a.error) return <div style={box}>No se pudo cargar la actividad.</div>
+  const h3 = {fontSize:13,fontWeight:700,margin:'14px 0 6px'}
+  const line = {display:'flex',justifyContent:'space-between',gap:10,padding:'3px 0',borderBottom:'1px solid var(--border)'}
+  const recent = all ? a.recent : a.recent.slice(0, 10)
+  return (
+    <div style={box}>
+      <div style={{display:'flex',justifyContent:'space-between',gap:10}}>
+        <strong>Actividad de {a.display_name || a.username}</strong>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text2)',cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,marginTop:10}}>
+        {[[PLAN_NAME[a.plan] || a.plan, 'Plan'], [ago(a.last_seen_at), 'Última conexión'], [a.listens_month, 'Escuchas este mes'],
+          [a.listens_total, 'Escuchas en total'], [a.distinct_tracks, 'Canciones distintas'], [a.created_at?.slice(0,10), 'Cuenta creada']]
+          .map(([v, l]) => (
+            <div key={l} style={{background:'var(--bg2)',borderRadius:8,padding:'8px 10px'}}>
+              <div style={{fontWeight:800}}>{v ?? '—'}</div>
+              <div style={{fontSize:11,color:'var(--text3)'}}>{l}</div>
+            </div>
+        ))}
+      </div>
+      {a.listens_total === 0 ? <p style={{marginTop:12,color:'var(--text3)'}}>Todavía no ha escuchado ninguna canción (desde que se registran las escuchas).</p> : <>
+        <div style={h3}>Artistas que más escucha</div>
+        {a.top_artists.map(x => <div key={x.artist_id} style={line}><span>{x.name}</span><span>{x.listens} escuchas</span></div>)}
+        <div style={h3}>Canciones que más escucha</div>
+        {a.top_tracks.map(t => (
+          <div key={t.track_id} style={line}>
+            <span>{t.title} <span style={{color:'var(--text3)'}}>· {t.artists}</span></span>
+            <span style={{flexShrink:0}}>{t.listens}× · {ago(t.last)}</span>
+          </div>
+        ))}
+        <div style={h3}>Historial de escuchas</div>
+        {recent.map((r, i) => (
+          <div key={i} style={line}>
+            <span>{r.title} <span style={{color:'var(--text3)'}}>· {r.artists}</span></span>
+            <span style={{flexShrink:0,color:'var(--text2)'}}>{when(r.played_at)}{r.source === 'offline' ? ' · sin conexión' : ''}</span>
+          </div>
+        ))}
+        {a.recent.length > 10 && (
+          <button onClick={() => setAll(v => !v)} style={{marginTop:8,background:'none',border:'none',color:'var(--accent)',cursor:'pointer',fontWeight:600}}>
+            {all ? 'Ver menos' : `Ver las últimas ${a.recent.length}`}
+          </button>
+        )}
+        <div style={h3}>Escuchas por mes</div>
+        {a.by_month.map(m => <div key={m.month} style={line}><span>{m.month}</span><span>{m.listens}</span></div>)}
+      </>}
     </div>
   )
 }
@@ -455,7 +554,7 @@ function EarningsPanel() {
 
       <div style={s.statsRow}>
         {[
-          [fmtXAF(data.collected), `Recaudado (${data.paying_listeners} oyentes × ${fmtXAF(data.price)})`],
+          [fmtXAF(data.collected), `${data.live ? 'Recaudado' : 'Recaudación simulada'} (${data.paying_listeners} oyentes Amante × ${fmtXAF(data.price)})`],
           [fmtXAF(data.to_artists), `Para artistas (${data.artist_percent}%)`],
           [fmtXAF(data.platform), `Para la plataforma (${100 - data.artist_percent}%)`],
         ].map(([v, l]) => (
@@ -467,7 +566,9 @@ function EarningsPanel() {
       </div>
       {!data.live && (
         <p style={{background:'rgba(245,180,0,.12)',border:'1px solid rgba(245,180,0,.45)',borderRadius:10,padding:'10px 14px',fontSize:13,marginBottom:12}}>
-          🚧 <strong>Monetización no activa:</strong> los artistas ven estas cifras como simulación. Actívala en Configuración cuando empecéis a pagar.
+          🚧 <strong>Monetización no activa:</strong> por ahora el plan Amante es gratis, así que estas cifras son una simulación:
+          suponen que cada Amante pagaría {fmtXAF(data.price)} al mes. Los artistas también lo ven como simulación.
+          Actívala en Configuración cuando empecéis a cobrar y pagar.
         </p>
       )}
       <p style={{color:'var(--text3)',fontSize:12,marginBottom:16,lineHeight:1.6}}>

@@ -192,6 +192,7 @@ def login(body: LoginBody):
     user = db.get_user_by_email(ident) or db.get_user_by_username(ident)
     if not user or not verify_password(body.password, user['password_hash']):
         raise HTTPException(401, "Email/usuario o contraseña incorrectos")
+    db.touch_last_seen(user)
     return {"token": create_token(user['id']), "user": _safe_user(user)}
 
 @app.get("/api/auth/me")
@@ -1162,6 +1163,16 @@ def admin_stats(user=Depends(require_admin)):
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return db.get_all_users()
+
+@app.get("/api/admin/users/{uid}/activity")
+def admin_user_activity(uid: int, user=Depends(require_admin)):
+    """Ficha de actividad de una cuenta: última conexión, qué escucha y cuándo."""
+    u = db.get_user_by_id(uid)
+    if not u:
+        raise HTTPException(404, "Usuario no encontrado")
+    info = {k: u.get(k) for k in ('id', 'username', 'display_name', 'email', 'plan', 'account_type',
+                                  'created_at', 'last_seen_at')}
+    return {**info, **db.user_activity(uid)}
 
 @app.get("/api/admin/tracks")
 def admin_tracks(user=Depends(require_admin)):

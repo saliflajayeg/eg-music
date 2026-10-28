@@ -76,9 +76,16 @@ def decode_token(token: str) -> Optional[int]:
 
 # ── FastAPI dependencies ───────────────────────────────────────────────────────
 
+_DB = None
+
 def _get_db():
-    from database import Database
-    return Database()
+    """Una sola conexión compartida. Antes se abría una nueva (y se repasaban
+    todas las migraciones) en cada petición con sesión: lento con Supabase."""
+    global _DB
+    if _DB is None:
+        from database import Database
+        _DB = Database()
+    return _DB
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
@@ -89,7 +96,10 @@ def get_current_user(
     if uid is None:
         return None
     db = _get_db()
-    return db.get_user_by_id(uid)
+    user = db.get_user_by_id(uid)
+    if user:
+        db.touch_last_seen(user)   # 'última conexión' (como mucho 1 escritura cada 5 min)
+    return user
 
 def require_user(user=Depends(get_current_user)):
     if not user:

@@ -62,8 +62,9 @@ export default function Royalties() {
       {!data.live && (
         <div style={s.notLive} role="note">
           <div style={{fontWeight:800,marginBottom:4}}>🚧 La monetización todavía no está activa</div>
-          EG Music aún no paga regalías. Esta página te enseña <strong>cómo se te pagará</strong> cuando empiece:
-          las cifras son una <strong>simulación</strong> hecha con tus escuchas reales, no dinero que se te deba.
+          EG Music aún no paga regalías y, por ahora, el plan <strong>Amante es gratis</strong> para los oyentes.
+          Esta página te enseña <strong>cómo se te pagará</strong> cuando empiece: las cifras son una <strong>simulación</strong>
+          con tus escuchas reales, suponiendo que cada Amante pagara {fmtXAF(data.price)} al mes. No es dinero que se te deba.
         </div>
       )}
 
@@ -83,8 +84,8 @@ export default function Royalties() {
       </div>
 
       <div style={s.stats}>
-        <Stat value={data.paid_listeners} label="Oyentes de pago" />
-        <Stat value={fmtN(data.paid_listens)} label="Escuchas de pago" />
+        <Stat value={data.paid_listeners} label={data.live ? 'Oyentes de pago' : 'Oyentes Amante'} />
+        <Stat value={fmtN(data.paid_listens)} label={data.live ? 'Escuchas de pago' : 'Escuchas de Amantes'} />
         <Stat value={fmtN(data.free_listens)} label="Escuchas gratis" />
         <Stat value={fmtN(data.anon_listens)} label="Sin cuenta" />
       </div>
@@ -92,7 +93,8 @@ export default function Royalties() {
       <details style={s.how} open={!data.live}>
         <summary style={{cursor:'pointer',fontWeight:700}}>{data.live ? '¿Cómo se calcula?' : '¿Cómo te pagaremos?'}</summary>
         <ol style={s.howList}>
-          <li>Cada <strong>oyente de pago</strong> (plan Amante) paga {fmtXAF(data.price)} al mes.</li>
+          <li>Cada <strong>oyente de pago</strong> (plan Amante) paga {fmtXAF(data.price)} al mes.
+            {!data.live && ' (Por ahora el plan Amante es gratis; este será su precio cuando empiece la monetización.)'}</li>
           <li>El <strong>{data.artist_percent}%</strong> de lo que paga cada oyente ({fmtXAF(data.contribution_per_listener)}) es para los artistas.
             El resto mantiene la plataforma.</li>
           <li>Ese dinero se reparte <strong>solo entre los artistas que ese oyente escucha</strong>, según cuánto los escucha.
@@ -121,7 +123,7 @@ export default function Royalties() {
               <div style={{flex:1,minWidth:0}}>
                 <div style={s.rowTitle}>{l.name || l.username || 'Usuario'}</div>
                 <div style={s.rowSub}>
-                  {l.paid ? <span style={s.paidTag}>De pago</span> : <span style={s.freeTag}>Gratis</span>}
+                  {l.paid ? <span style={s.paidTag}>{data.live ? 'De pago' : 'Amante'}</span> : <span style={s.freeTag}>Gratis</span>}
                   {' '}{fmtN(l.listens)} {l.listens === 1 ? 'escucha' : 'escuchas'}
                 </div>
               </div>
