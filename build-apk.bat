@@ -9,6 +9,7 @@ echo.
 if not defined JAVA_HOME if exist "C:\Program Files\Android\Android Studio\jbr\bin\java.exe" set "JAVA_HOME=C:\Program Files\Android\Android Studio\jbr"
 echo  [1/5] Compilando la web para Android...
 cd frontend
+call npm install || goto :error
 call npm run build:android || goto :error
 echo  [2/5] Copiando la web al proyecto Android...
 call npx cap sync android || goto :error
