@@ -22,6 +22,7 @@ export default function Register() {
   const [type, setType]   = useState(null)   // 'artist' | 'listener'
   const [form, setForm]   = useState({ username:'', email:'', password:'', display_name:'' })
   const [error, setError] = useState('')
+  const [hp, setHp]       = useState('')   // campo trampa: las personas no lo ven, los bots sí lo rellenan
   const [loading, setLoading] = useState(false)
   const { loginUser } = useAuth()
   const navigate = useNavigate()
@@ -30,7 +31,7 @@ export default function Register() {
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      const r = await register({ ...form, account_type: type })
+      const r = await register({ ...form, account_type: type, website: hp })
       loginUser(r.token, r.user)
       navigate(type === 'artist' ? `/user/${r.user.id}` : '/')
     } catch (err) {
@@ -77,6 +78,9 @@ export default function Register() {
         </p>
         {error && <div style={s.error}>{error}</div>}
         <form onSubmit={submit} style={s.form}>
+          <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true"
+            value={hp} onChange={e => setHp(e.target.value)}
+            style={{position:'absolute',left:'-10000px',width:1,height:1,opacity:0}} />
           <input className="input"
             placeholder={isArtist ? 'Nombre artístico' : 'Tu nombre (opcional)'}
             required={isArtist}

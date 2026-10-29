@@ -4,7 +4,8 @@ import bcrypt
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import jwt, JWTError
+import jwt                      # PyJWT (python-jose tenía vulnerabilidades sin arreglo)
+from jwt import PyJWTError as JWTError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -63,16 +64,22 @@ def verify_password(plain: str, hashed: str) -> bool:
     except ValueError:
         return False
 
-def create_token(user_id: int) -> str:
+def create_token(user_id: int, version: int = 0) -> str:
+    """`v` = versión de sesión del usuario. Al cambiar o restablecer la contraseña
+    sube la versión y todas las sesiones anteriores dejan de valer."""
     expire = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, _secret(), algorithm=ALGORITHM)
+    return jwt.encode({"sub": str(user_id), "v": int(version or 0), "exp": expire},
+                      _secret(), algorithm=ALGORITHM)
 
-def decode_token(token: str) -> Optional[int]:
+def _decode(token: str):
     try:
         payload = jwt.decode(token, _secret(), algorithms=[ALGORITHM])
-        return int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        return None
+        return int(payload["sub"]), int(payload.get("v", 0))
+    except (JWTError, KeyError, ValueError, TypeError):
+        return None, None
+
+def decode_token(token: str) -> Optional[int]:
+    return _decode(token)[0]
 
 # ── FastAPI dependencies ───────────────────────────────────────────────────────
 
@@ -92,11 +99,13 @@ def get_current_user(
 ):
     if not credentials:
         return None
-    uid = decode_token(credentials.credentials)
+    uid, version = _decode(credentials.credentials)
     if uid is None:
         return None
     db = _get_db()
     user = db.get_user_by_id(uid)
+    if user and int(user.get('token_version') or 0) != version:
+        return None    # sesión cerrada por cambio de contraseña
     if user:
         db.touch_last_seen(user)   # 'última conexión' (como mucho 1 escritura cada 5 min)
     return user

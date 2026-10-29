@@ -12,6 +12,7 @@ export default function ClaimAccount() {
   const [searching, setSearching] = useState(false)
   const [picked, setPicked] = useState(null)
   const [email, setEmail] = useState('')
+  const [hp, setHp] = useState('')   // campo trampa para bots
   const [contact, setContact] = useState('')
   const [message, setMessage] = useState('')
   const [sent, setSent] = useState(false)
@@ -38,7 +39,7 @@ export default function ClaimAccount() {
     if (!email.trim() && !contact.trim()) { setError('Deja tu correo o tu WhatsApp para poder responderte.'); return }
     setBusy(true)
     try {
-      await submitClaim({ artist_user_id: picked.id, email: email.trim(), contact: contact.trim(), message: message.trim() })
+      await submitClaim({ artist_user_id: picked.id, email: email.trim(), contact: contact.trim(), message: message.trim(), website: hp })
       setSent(true)
     } catch (e) { setError(e.message || 'No se pudo enviar la solicitud.') }
     finally { setBusy(false) }
@@ -100,6 +101,9 @@ export default function ClaimAccount() {
 
             <label style={s.label}>WhatsApp / contacto</label>
             <input className="input" value={contact} onChange={e => setContact(e.target.value)} placeholder="+240 …" />
+            <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true"
+              value={hp} onChange={e => setHp(e.target.value)}
+              style={{position:'absolute',left:'-10000px',width:1,height:1,opacity:0}} />
 
             <label style={s.label}>Mensaje (opcional)</label>
             <textarea className="input" value={message} onChange={e => setMessage(e.target.value)} rows={3}

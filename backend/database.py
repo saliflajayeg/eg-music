@@ -183,12 +183,14 @@ class Database:
             for stmt in ("ALTER TABLE track_artists ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",
                          "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_curator INTEGER DEFAULT 0",
                          "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT ''",
-                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TEXT DEFAULT ''"):
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TEXT DEFAULT ''",
+                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0"):
                 try: self.conn.execute(stmt)
                 except Exception: pass
             self.conn.commit()
             self._backfill_account_type()
             self._create_royalty_tables()
+            self._enable_rls()
             return
         self.conn.executescript('''
             CREATE TABLE IF NOT EXISTS users (
@@ -396,6 +398,8 @@ class Database:
             self.conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT ''")
         if 'last_seen_at' not in user_cols:   # última vez que usó la app con sesión
             self.conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT DEFAULT ''")
+        if 'token_version' not in user_cols:  # sube al cambiar la contraseña: cierra sesiones viejas
+            self.conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0")
         self._backfill_account_type()
         self._create_royalty_tables()
 
@@ -510,7 +514,10 @@ class Database:
         return [dict(r) for r in rows]
 
     def update_password(self, uid, password_hash):
-        self.conn.execute('UPDATE users SET password_hash=? WHERE id=?', (password_hash, uid))
+        """Cambia la contraseña y cierra todas las sesiones abiertas de esa cuenta."""
+        self.conn.execute(
+            'UPDATE users SET password_hash=?, token_version=COALESCE(token_version,0)+1 WHERE id=?',
+            (password_hash, uid))
         self.conn.commit()
 
     def update_email(self, uid, email):
@@ -861,6 +868,29 @@ class Database:
     # cada oyente de pago entre los artistas que él escuchó (modelo por oyente).
     # Sin claves foráneas a propósito: es el libro de contabilidad y no debe
     # perder filas si se borra una cuenta o una canción.
+
+    def _enable_rls(self):
+        """Supabase publica todas las tablas por su API REST con la clave 'anon',
+        que es pública. Activar RLS sin políticas cierra esa puerta: nadie puede
+        leer ni escribir por la API de Supabase. La app no se ve afectada porque
+        se conecta como dueña de las tablas (el dueño se salta RLS).
+        Solo se activa en tablas cuyo dueño es el usuario con el que conecta la
+        app, para no bloquearla nunca a ella misma."""
+        try:
+            self.conn.execute("""
+                DO $$
+                DECLARE r record;
+                BEGIN
+                  FOR r IN SELECT tablename FROM pg_tables
+                           WHERE schemaname = 'public' AND tableowner = current_user
+                  LOOP
+                    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.tablename);
+                  END LOOP;
+                END $$;
+            """)
+            self.conn.commit()
+        except Exception as e:   # nunca impedir que arranque la app por esto
+            print('[seguridad] no se pudo activar RLS:', e)
 
     def _create_royalty_tables(self):
         pk = 'SERIAL PRIMARY KEY' if self.pg else 'INTEGER PRIMARY KEY AUTOINCREMENT'

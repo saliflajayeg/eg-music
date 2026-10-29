@@ -6,20 +6,25 @@ from typing import Optional
 from fastapi import (FastAPI, HTTPException, Request, Depends, UploadFile, File, Form)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse, FileResponse, HTMLResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 
 from database import Database
 import transcode
 import storage
 from auth import (
-    hash_password, verify_password, create_token,
+    hash_password, verify_password, create_token, _secret,
     get_current_user, require_user, require_uploader, require_admin, require_curator
 )
+import security as sec
+from security import rate_limit, clean_text
 
 # ── Init ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="EG Music")
+# Sin /docs ni /openapi.json en producción: no damos el mapa de la API a nadie.
+_SHOW_DOCS = os.environ.get('SHOW_API_DOCS') == '1'
+app = FastAPI(title="EG Music", docs_url='/docs' if _SHOW_DOCS else None,
+              redoc_url=None, openapi_url='/openapi.json' if _SHOW_DOCS else None)
 db  = Database()
 
 PLANS = ('free', 'amante', 'pro', 'premium')
@@ -74,7 +79,18 @@ for d in (TRACKS_DIR, COVERS_DIR, AVATARS_DIR, RECEIPTS_DIR, SHARE_IMG_DIR):
 # (No-op until ffmpeg is present, so it's safe even on images without it.)
 transcode.start(db, TRACKS_DIR)
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# CORS: solo la web de EG Music, la app de Android (Capacitor) y pruebas locales.
+# Se pueden añadir dominios con ALLOWED_ORIGINS="https://a.com,https://b.com".
+_ORIGINS = [o.strip() for o in os.environ.get('ALLOWED_ORIGINS', '').split(',') if o.strip()] + [
+    'https://eg-music.onrender.com', 'https://eg-music.egmusicapp.workers.dev',
+    'https://localhost', 'http://localhost', 'capacitor://localhost', 'ionic://localhost',
+    'http://localhost:5173', 'http://localhost:8001', 'http://127.0.0.1:8001',
+]
+app.add_middleware(CORSMiddleware, allow_origins=_ORIGINS,
+                   allow_origin_regex=r'https://[a-z0-9-]+\.trycloudflare\.com',
+                   allow_methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+                   allow_headers=['Authorization', 'Content-Type', 'Range'])
+app.add_middleware(sec.SecurityMiddleware)
 
 AUDIO_MIME = {
     '.mp3':'audio/mpeg', '.flac':'audio/flac', '.wav':'audio/wav',
@@ -118,6 +134,81 @@ def _can_manage_track(user, t):
 def _mime(path, table):
     return table.get(Path(path).suffix.lower(), 'application/octet-stream')
 
+def _visible(t, user):
+    """Una canción oculta o programada a futuro solo la ve su dueño o un admin."""
+    if not t:
+        return False
+    if (int(t.get('is_public', 1) or 0) == 1) and not _is_scheduled(t):
+        return True
+    return _can_manage_track(user, t)
+
+def _parse_collabs(raw, owner_id):
+    """Valida la lista de colaboradores [{user_id, percent, role}] que manda el cliente."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "Colaboradores inválidos")
+    if not isinstance(parsed, list) or len(parsed) > 10:
+        raise HTTPException(400, "Colaboradores inválidos (máximo 10)")
+    out, seen, total = [], set(), 0.0
+    for c in parsed:
+        if not isinstance(c, dict):
+            raise HTTPException(400, "Colaboradores inválidos")
+        try:
+            uid = int(c.get('user_id'))
+            p = float(c.get('percent') or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Colaborador o porcentaje inválido")
+        if uid == owner_id or uid in seen:
+            continue
+        if not db.get_user_by_id(uid):
+            raise HTTPException(400, "Un colaborador no existe")
+        if p <= 0 or p >= 100:
+            raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
+        seen.add(uid); total += p
+        out.append({'user_id': uid, 'percent': round(p, 2),
+                    'role': clean_text(c.get('role'), 'Rol', 40)})
+    if total >= 100:
+        raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    return out
+
+async def _read_cover(cover, owner_id):
+    """Portada opcional: tamaño máximo, imagen real y sin metadatos. Devuelve el nombre o ''."""
+    if not (cover and cover.filename):
+        return ''
+    cext = Path(cover.filename).suffix.lower()
+    if cext not in IMAGE_MIME:
+        raise HTTPException(400, "Formato de imagen no soportado (usa JPG, PNG o WEBP)")
+    data = sec.sanitize_image(await sec.read_limited(cover, sec.MAX_IMAGE_BYTES, 'La portada'), cext)
+    fname = f"cover_{owner_id}_{uuid.uuid4().hex[:8]}{cext}"
+    if storage.enabled():
+        storage.put(f'covers/{fname}', data, IMAGE_MIME.get(cext))
+    else:
+        (COVERS_DIR / fname).write_bytes(data)
+    return fname
+
+async def _read_media(audio):
+    ext = Path(audio.filename or '').suffix.lower()
+    if ext in AUDIO_MIME:
+        media_type, limit = 'audio', sec.MAX_AUDIO_BYTES
+    elif ext in VIDEO_MIME:
+        media_type, limit = 'video', sec.MAX_VIDEO_BYTES
+    else:
+        raise HTTPException(400, f"Formato no soportado: {ext[:10]}")
+    data = await sec.read_limited(audio, limit, 'El archivo')
+    sec.check_media_signature(data, ext)
+    return ext, media_type, data
+
+def _track_texts(title, artist, album, genre, description):
+    return (clean_text(title, 'Título', 120, required=True), clean_text(artist, 'Artista', 120, required=True),
+            clean_text(album, 'Álbum', 120), clean_text(genre, 'Género', 40),
+            clean_text(description, 'Descripción', 2000, multiline=True))
+
 def _stream(path: Path, request: Request, mime: str):
     size = path.stat().st_size
     rng  = request.headers.get('range')
@@ -156,6 +247,7 @@ class RegisterBody(BaseModel):
     password: str
     display_name: Optional[str] = None
     account_type: str = 'listener'   # 'artist' | 'listener' — se elige gratis al registrarse
+    website: Optional[str] = None    # campo trampa para bots (oculto en el formulario)
 
 ACCOUNT_TYPES = ('artist', 'listener')
 
@@ -164,11 +256,15 @@ class LoginBody(BaseModel):
     password: str
 
 @app.post("/api/auth/register", status_code=201)
-def register(body: RegisterBody):
+def register(body: RegisterBody, request: Request):
+    sec.check_honeypot(body.website)
+    rate_limit(request, 'register', 5, 3600)          # 5 cuentas por hora y red
     body.username = body.username.strip().lower()
-    body.email    = body.email.strip().lower()
-    if len(body.username) < 3:
-        raise HTTPException(400, "El nombre de usuario debe tener al menos 3 caracteres")
+    body.email    = sec.valid_email(body.email)
+    body.display_name = clean_text(body.display_name, 'Nombre', 60) or None
+    if not sec.USERNAME_RE.match(body.username):
+        raise HTTPException(400, "El usuario debe tener entre 3 y 30 caracteres: letras, números, punto o guion bajo")
+    sec.valid_password(body.password)
     if db.get_user_by_username(body.username):
         raise HTTPException(409, "Ese nombre de usuario ya existe")
     if db.get_user_by_email(body.email):
@@ -186,14 +282,19 @@ def register(body: RegisterBody):
     return {"token": create_token(uid), "user": _safe_user(user)}
 
 @app.post("/api/auth/login")
-def login(body: LoginBody):
+def login(body: LoginBody, request: Request):
     # `email` field carries either an email or a username (login accepts both)
-    ident = body.email.strip().lower()
+    rate_limit(request, 'login', 20, 600)              # 20 intentos / 10 min por red
+    ident = body.email.strip().lower()[:200]
+    if sec.login_locked(ident):
+        raise HTTPException(429, "Demasiados intentos fallidos. Espera 15 minutos o pide ayuda al administrador.")
     user = db.get_user_by_email(ident) or db.get_user_by_username(ident)
-    if not user or not verify_password(body.password, user['password_hash']):
+    if not user or not verify_password(body.password[:128], user['password_hash']):
+        sec.login_failed(ident)
         raise HTTPException(401, "Email/usuario o contraseña incorrectos")
+    sec.login_ok(ident)
     db.touch_last_seen(user)
-    return {"token": create_token(user['id']), "user": _safe_user(user)}
+    return {"token": create_token(user['id'], user.get('token_version') or 0), "user": _safe_user(user)}
 
 @app.get("/api/auth/me")
 def me(user=Depends(require_user)):
@@ -218,25 +319,26 @@ class ChangePasswordBody(BaseModel):
     new_password: str
 
 @app.post("/api/auth/change-password")
-def change_password(body: ChangePasswordBody, user=Depends(require_user)):
-    if not verify_password(body.current_password, user['password_hash']):
+def change_password(body: ChangePasswordBody, request: Request, user=Depends(require_user)):
+    rate_limit(request, 'chpw', 10, 600, str(user['id']))
+    if not verify_password(body.current_password[:128], user['password_hash']):
         raise HTTPException(401, "La contraseña actual no es correcta")
-    if len(body.new_password) < 6:
-        raise HTTPException(400, "La nueva contraseña debe tener al menos 6 caracteres")
+    sec.valid_password(body.new_password)
     db.update_password(user['id'], hash_password(body.new_password))
-    return {"ok": True}
+    # Las demás sesiones (otros móviles) se cierran; este dispositivo sigue dentro.
+    fresh = db.get_user_by_id(user['id'])
+    return {"ok": True, "token": create_token(fresh['id'], fresh.get('token_version') or 0)}
 
 class ChangeEmailBody(BaseModel):
     new_email: str
     password: str
 
 @app.post("/api/auth/change-email")
-def change_email(body: ChangeEmailBody, user=Depends(require_user)):
-    if not verify_password(body.password, user['password_hash']):
+def change_email(body: ChangeEmailBody, request: Request, user=Depends(require_user)):
+    rate_limit(request, 'chemail', 10, 600, str(user['id']))
+    if not verify_password(body.password[:128], user['password_hash']):
         raise HTTPException(401, "La contraseña no es correcta")
-    new_email = body.new_email.strip().lower()
-    if '@' not in new_email or '.' not in new_email.split('@')[-1]:
-        raise HTTPException(400, "Introduce un email válido")
+    new_email = sec.valid_email(body.new_email)
     existing = db.get_user_by_email(new_email)
     if existing and existing['id'] != user['id']:
         raise HTTPException(409, "Ese email ya está registrado")
@@ -265,18 +367,19 @@ def get_user(uid: int, current=Depends(get_current_user)):
 @app.patch("/api/users/me")
 def update_profile(body: UpdateProfileBody, user=Depends(require_user)):
     kwargs = {}
-    if body.display_name is not None: kwargs['display_name'] = body.display_name.strip()
-    if body.bio is not None:          kwargs['bio'] = body.bio.strip()
+    if body.display_name is not None: kwargs['display_name'] = clean_text(body.display_name, 'Nombre', 60, required=True)
+    if body.bio is not None:          kwargs['bio'] = clean_text(body.bio, 'Biografía', 500, multiline=True)
     db.update_user(user['id'], **kwargs)
     return _safe_user(db.get_user_by_id(user['id']))
 
 @app.post("/api/users/me/avatar")
-async def upload_avatar(file: UploadFile = File(...), user=Depends(require_user)):
-    ext = Path(file.filename).suffix.lower()
+async def upload_avatar(request: Request, file: UploadFile = File(...), user=Depends(require_user)):
+    rate_limit(request, 'avatar', 20, 3600, str(user['id']))
+    ext = Path(file.filename or '').suffix.lower()
     if ext not in IMAGE_MIME:
         raise HTTPException(400, "Formato de imagen no soportado")
     fname = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
-    content = await file.read()
+    content = sec.sanitize_image(await sec.read_limited(file, sec.MAX_IMAGE_BYTES, 'La foto'), ext, max_side=1024)
     if storage.enabled():
         storage.put(f'avatars/{fname}', content, IMAGE_MIME.get(ext))
     else:
@@ -316,9 +419,8 @@ def get_liked(user=Depends(require_user)):
 @app.get("/api/tracks/{track_id}")
 def get_track(track_id: int, current=Depends(get_current_user)):
     t = db.get_track(track_id, viewer_id=current['id'] if current else None)
-    if not t: raise HTTPException(404)
-    # un tema programado a futuro solo lo ve su dueño (o un admin)
-    if _is_scheduled(t) and not _can_manage_track(current, t):
+    # un tema oculto o programado a futuro solo lo ve su dueño (o un admin)
+    if not _visible(t, current):
         raise HTTPException(404)
     return t
 
@@ -349,46 +451,17 @@ async def edit_track(
     if t['user_id'] != user['id'] and not user['is_admin']:
         raise HTTPException(403, "No es tu canción")
 
-    title = (title or '').strip()
-    if not title: raise HTTPException(400, "El título no puede estar vacío")
+    title = clean_text(title, 'Título', 120, required=True)
+    collabs = _parse_collabs(collaborators, t['user_id'])     # validar antes de tocar nada
 
     # New cover (optional) — store it like an upload; the old file is left in R2.
-    new_cover = None
-    if cover and cover.filename:
-        cext = Path(cover.filename).suffix.lower()
-        if cext not in IMAGE_MIME:
-            raise HTTPException(400, "Formato de imagen no soportado")
-        cover_fname = f"cover_{t['user_id']}_{uuid.uuid4().hex[:8]}{cext}"
-        cover_data = await cover.read()
-        if storage.enabled():
-            storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
-        else:
-            (COVERS_DIR / cover_fname).write_bytes(cover_data)
-        new_cover = cover_fname
+    new_cover = (await _read_cover(cover, t['user_id'])) or None
 
     db.update_track(track_id, title=title, cover=new_cover)
 
     # Collaborators — only touched when the field is sent. Owner keeps the rest.
-    if collaborators is not None:
-        collabs = []
-        if collaborators.strip():
-            try:
-                parsed = json.loads(collaborators)
-                if isinstance(parsed, list):
-                    collabs = parsed[:10]
-            except Exception:
-                raise HTTPException(400, "Colaboradores inválidos")
-        total = 0.0
-        for c in collabs:
-            try:
-                p = float(c.get('percent') or 0)
-            except (TypeError, ValueError):
-                raise HTTPException(400, "Porcentaje inválido")
-            if p <= 0 or p >= 100:
-                raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
-            total += p
-        if total >= 100:
-            raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    if collabs is not None:
+        total = sum(c['percent'] for c in collabs)
         db.set_track_artists(track_id, t['user_id'], round(100.0 - total, 2), collabs, preserve_status=True)
 
     return db.get_track(track_id, viewer_id=user['id'])
@@ -466,15 +539,12 @@ async def upload_track(
     publish_at:  str  = Form(''),    # ISO UTC futura, o '' para publicar ya
     audio:       UploadFile = File(...),
     cover:       Optional[UploadFile] = File(None),
+    request:     Request = None,
     user=Depends(require_uploader),
 ):
-    ext = Path(audio.filename).suffix.lower()
-    if ext in AUDIO_MIME:
-        media_type = 'audio'
-    elif ext in VIDEO_MIME:
-        media_type = 'video'
-    else:
-        raise HTTPException(400, f"Formato no soportado: {ext}")
+    rate_limit(request, 'upload', 30, 3600, str(user['id']))
+    title, artist, album, genre, description = _track_texts(title, artist, album, genre, description)
+    collabs = _parse_collabs(collaborators, user['id'])
 
     if not user['is_admin']:
         caps = _plan_caps(user)
@@ -483,8 +553,8 @@ async def upload_track(
             nxt = 'Premium' if user['plan'] == 'pro' else 'un plan superior'
             raise HTTPException(403, f"Has alcanzado tu límite de {limit} subidas este mes. Mejora a {nxt} para subir más.")
 
+    ext, media_type, audio_data = await _read_media(audio)
     audio_fname = f"track_{user['id']}_{uuid.uuid4().hex}{ext}"
-    audio_data  = await audio.read()
     # Write locally first (mutagen needs a path); with R2 we upload then remove it.
     (TRACKS_DIR / audio_fname).write_bytes(audio_data)
 
@@ -504,45 +574,17 @@ async def upload_track(
         (TRACKS_DIR / audio_fname).unlink(missing_ok=True)
 
     # Cover
-    cover_fname = ''
-    if cover and cover.filename:
-        cext = Path(cover.filename).suffix.lower()
-        if cext in IMAGE_MIME:
-            cover_fname = f"cover_{user['id']}_{uuid.uuid4().hex[:8]}{cext}"
-            cover_data = await cover.read()
-            if storage.enabled():
-                storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
-            else:
-                (COVERS_DIR / cover_fname).write_bytes(cover_data)
+    cover_fname = await _read_cover(cover, user['id'])
 
     tid = db.create_track(
-        user['id'], title.strip(), artist.strip(), album.strip(),
-        genre.strip(), description.strip(), audio_fname, cover_fname, duration,
+        user['id'], title, artist, album, genre, description, audio_fname, cover_fname, duration,
         media_type, publish_at=_parse_publish_at(publish_at)
     )
 
-    # Credited artists + revenue split. `collaborators` is a JSON list of
-    # {user_id, percent}; each collaborator must accept before appearing
-    # publicly, so nobody can credit a well-known artist without permission.
-    collabs = []
-    if collaborators:
-        try:
-            parsed = json.loads(collaborators)
-            if isinstance(parsed, list):
-                collabs = parsed[:10]   # sane cap
-        except Exception:
-            raise HTTPException(400, "Colaboradores inválidos")
-    total = 0.0
-    for c in collabs:
-        try:
-            p = float(c.get('percent') or 0)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "Porcentaje inválido")
-        if p <= 0 or p >= 100:
-            raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
-        total += p
-    if total >= 100:
-        raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    # Credited artists + revenue split. Each collaborator must accept before
+    # appearing publicly, so nobody can credit a well-known artist without permission.
+    collabs = collabs or []
+    total = sum(c['percent'] for c in collabs)
     db.set_track_artists(tid, user['id'], round(100.0 - total, 2), collabs)
 
     # Kick off the 360p 'data saver' rendition in the background (videos only).
@@ -573,13 +615,10 @@ async def admin_upload_track(
     owner = db.get_user_by_id(owner_user_id)
     if not owner:
         raise HTTPException(404, "El artista (owner_user_id) no existe")
-    ext = Path(audio.filename).suffix.lower()
-    if ext in AUDIO_MIME:   media_type = 'audio'
-    elif ext in VIDEO_MIME: media_type = 'video'
-    else: raise HTTPException(400, f"Formato no soportado: {ext}")
-
+    title, artist, album, genre, description = _track_texts(title, artist, album, genre, description)
+    collabs = _parse_collabs(collaborators, owner_user_id) or []
+    ext, media_type, audio_data = await _read_media(audio)
     audio_fname = f"track_{owner_user_id}_{uuid.uuid4().hex}{ext}"
-    audio_data  = await audio.read()
     (TRACKS_DIR / audio_fname).write_bytes(audio_data)
     dur = float(duration) if duration and duration > 0 else 0.0
     if not dur and media_type == 'audio':
@@ -593,37 +632,13 @@ async def admin_upload_track(
         storage.put(f'tracks/{audio_fname}', audio_data, _mime(audio_fname, MEDIA_MIME))
         (TRACKS_DIR / audio_fname).unlink(missing_ok=True)
 
-    cover_fname = ''
-    if cover and cover.filename:
-        cext = Path(cover.filename).suffix.lower()
-        if cext in IMAGE_MIME:
-            cover_fname = f"cover_{owner_user_id}_{uuid.uuid4().hex[:8]}{cext}"
-            cover_data = await cover.read()
-            if storage.enabled():
-                storage.put(f'covers/{cover_fname}', cover_data, IMAGE_MIME.get(cext))
-            else:
-                (COVERS_DIR / cover_fname).write_bytes(cover_data)
+    cover_fname = await _read_cover(cover, owner_user_id)
 
     tid = db.create_track(
-        owner_user_id, title.strip(), artist.strip(), album.strip(),
-        genre.strip(), description.strip(), audio_fname, cover_fname, dur,
+        owner_user_id, title, artist, album, genre, description, audio_fname, cover_fname, dur,
         media_type, publish_at=_parse_publish_at(publish_at))
 
-    collabs = []
-    if collaborators:
-        try:
-            parsed = json.loads(collaborators)
-            if isinstance(parsed, list): collabs = parsed[:10]
-        except Exception:
-            raise HTTPException(400, "Colaboradores inválidos")
-    total = 0.0
-    for c in collabs:
-        try: p = float(c.get('percent') or 0)
-        except (TypeError, ValueError): raise HTTPException(400, "Porcentaje inválido")
-        if p <= 0 or p >= 100: raise HTTPException(400, "Cada porcentaje debe estar entre 1 y 99")
-        total += p
-    if total >= 100:
-        raise HTTPException(400, "Los porcentajes de los colaboradores deben sumar menos de 100%")
+    total = sum(c['percent'] for c in collabs)
     db.set_track_artists(tid, owner_user_id, round(100.0 - total, 2), collabs)
     db.accept_track_collabs(tid)   # admin => colaboradores aceptados directamente
 
@@ -652,14 +667,14 @@ def ensure_artist(body: EnsureArtistBody, user=Depends(require_curator)):
     el curador pueda subir a su nombre sin pedirle credenciales. Devuelve
     {id, created}. Scope de curador: NO puede tocar admin/curador de nadie."""
     username = body.username.strip().lower()
-    if len(username) < 3:
-        raise HTTPException(400, "El nombre de usuario debe tener al menos 3 caracteres")
+    if not sec.USERNAME_RE.match(username):
+        raise HTTPException(400, "Usuario inválido: 3-30 letras, números, punto o guion bajo")
     existing = db.get_user_by_username(username)
     if existing:
         return {"id": existing["id"], "created": False}
-    if len(body.password) < 6:
-        raise HTTPException(400, "La contraseña temporal debe tener al menos 6 caracteres")
-    email = (body.email or f"{username}@artist.egmusic").strip().lower()
+    sec.valid_password(body.password)
+    email = sec.valid_email(body.email) if body.email.strip() else f"{username}@artist.egmusic"
+    body.display_name = clean_text(body.display_name, 'Nombre', 60)
     if db.get_user_by_email(email):
         raise HTTPException(409, "Ese email ya está registrado")
     display = body.display_name.strip() or username
@@ -687,7 +702,9 @@ def delete_track(track_id: int, user=Depends(require_user)):
 @app.get("/api/tracks/{track_id}/stream")
 async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = '', count: int = 1):
     t = db.get_track(track_id)
-    if not t: raise HTTPException(404)
+    # El audio no lleva sesión (lo pide el reproductor del navegador), así que una
+    # canción oculta o aún no publicada no se sirve a nadie hasta su estreno.
+    if not t or not _visible(t, None): raise HTTPException(404)
     # q=sd -> serve the 360p 'data saver' rendition if it's ready, else original.
     fname = t['filename']
     if q == 'sd' and t.get('sd_status') == 'ready' and t.get('sd_file'):
@@ -695,7 +712,7 @@ async def stream_track(track_id: int, request: Request, dl: int = 0, q: str = ''
     # La web y la app nuevas piden siempre count=0: la escucha se cuenta aparte
     # (POST /api/plays) cuando se llevan 30 s escuchados y sabiendo quién escucha.
     # count=1 solo llega de versiones antiguas de la app: se cuenta como anónima.
-    if not dl and count:
+    if not dl and count and sec.limiter.hit(f'legacy:{sec.client_ip(request)}', 120, 600):
         db.record_listen(track_id, None, source='legacy')
     # R2: hand the client a presigned url and let it stream straight from R2
     # (range requests + zero bandwidth on this server).
@@ -766,14 +783,16 @@ def list_comments(track_id: int, current=Depends(get_current_user)):
     return db.get_comments(track_id, viewer_id=current['id'] if current else None)
 
 @app.post("/api/tracks/{track_id}/comments", status_code=201)
-def add_comment(track_id: int, body: CommentBody, user=Depends(require_user)):
-    text = (body.text or '').strip()
-    if not text:
-        raise HTTPException(400, "El comentario no puede estar vacío")
-    text = text[:1000]
+def add_comment(track_id: int, body: CommentBody, request: Request, user=Depends(require_user)):
+    rate_limit(request, 'comment', 15, 60, str(user['id']))     # anti-spam
+    text = clean_text(body.text, 'Comentario', 1000, required=True, multiline=True)
     track = db.get_track(track_id)
-    if not track:
+    if not _visible(track, user):
         raise HTTPException(404, "Contenido no encontrado")
+    if body.parent_id:
+        parent = db.get_comment(body.parent_id)
+        if not parent or parent['track_id'] != track_id:
+            raise HTTPException(400, "Respuesta inválida")
 
     comment = db.add_comment(track_id, user['id'], text, parent_id=body.parent_id)
 
@@ -827,14 +846,15 @@ def notifications_read(user=Depends(require_user)):
 
 class PlayEvent(BaseModel):
     track_id: int
-    client_event_id: str
-    played_at: Optional[str] = None
+    client_event_id: str = Field(max_length=64)
+    played_at: Optional[str] = Field(default=None, max_length=40)
 
 class SyncPlaysBody(BaseModel):
-    events: list[PlayEvent]
+    events: list[PlayEvent] = Field(max_length=500)
 
 @app.post("/api/sync/plays")
-def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
+def sync_plays(body: SyncPlaysBody, request: Request, user=Depends(require_user)):
+    rate_limit(request, 'sync', 30, 600, str(user['id']))
     # Events played offline (from downloaded files) that the server never saw.
     # Idempotent: dedupes on client_event_id so retries don't double-count.
     applied = db.record_play_events(user['id'], [e.model_dump() for e in body.events])
@@ -844,10 +864,13 @@ def sync_plays(body: SyncPlaysBody, user=Depends(require_user)):
 
 class ListenBody(BaseModel):
     track_id: int
-    client_event_id: Optional[str] = None
+    client_event_id: Optional[str] = Field(default=None, max_length=64)
 
 @app.post("/api/plays")
-def record_play(body: ListenBody, user=Depends(get_current_user)):
+def record_play(body: ListenBody, request: Request, user=Depends(get_current_user)):
+    rate_limit(request, 'plays', 120, 600, str(user['id']) if user else '')
+    if not _visible(db.get_track(body.track_id), user):
+        raise HTTPException(404)
     """El reproductor llama aquí cuando alguien lleva 30 s escuchando una canción.
     Funciona con o sin sesión (sin sesión = escucha anónima, no genera dinero)."""
     counted = db.record_listen(body.track_id, user, source='web', client_event_id=body.client_event_id)
@@ -965,7 +988,7 @@ def admin_mark_payout(body: PayoutBody, user=Depends(require_admin)):
     month = _month(body.month)
     if body.amount < 0:
         raise HTTPException(400, "Cantidad inválida")
-    db.mark_payout(body.artist_id, month, body.amount, body.note.strip()[:200], user['id'])
+    db.mark_payout(body.artist_id, month, body.amount, clean_text(body.note, 'Nota', 200), user['id'])
     return {"ok": True}
 
 # ── Explore ─────────────────────────────────────────────────────────────────────
@@ -983,7 +1006,7 @@ def list_artists(limit: int = 200):
 @app.get("/api/artists/search")
 def artists_search(q: str = '', user=Depends(require_user)):
     """Find artists to credit on a track (the collaborator picker)."""
-    q = q.strip()
+    q = q.strip()[:60]
     if len(q) < 2:
         return []
     rows = db.search(q)['users']
@@ -999,26 +1022,30 @@ class ClaimBody(BaseModel):
     email: str = ''
     contact: str = ''
     message: str = ''
+    website: Optional[str] = None   # campo trampa para bots
 
 @app.get("/api/claim/artists")
-def claim_search_artists(q: str = ''):
+def claim_search_artists(request: Request, q: str = ''):
     """Public search of artist accounts (uploaders) so someone can claim theirs."""
-    q = q.strip()
+    rate_limit(request, 'claimsearch', 60, 600)
+    q = q.strip()[:60]
     if len(q) < 2:
         return []
     return db.search_claimable_artists(q)
 
 @app.post("/api/claims", status_code=201)
-def create_claim(body: ClaimBody):
+def create_claim(body: ClaimBody, request: Request):
     """Public: an artist requests to take over an existing account. Reviewed by admin."""
+    sec.check_honeypot(body.website)
+    rate_limit(request, 'claim', 5, 3600)
     artist = db.get_user_by_id(body.artist_user_id)
     if not artist:
         raise HTTPException(404, "Artista no encontrado")
-    email = (body.email or '').strip()
-    contact = (body.contact or '').strip()
+    email = sec.valid_email(body.email) if (body.email or '').strip() else ''
+    contact = clean_text(body.contact, 'Contacto', 100)
     if not email and not contact:
         raise HTTPException(400, "Deja un correo o un contacto para poder responderte")
-    db.create_account_claim(body.artist_user_id, email, contact, (body.message or '').strip()[:800])
+    db.create_account_claim(body.artist_user_id, email, contact, clean_text(body.message, 'Mensaje', 800, multiline=True))
     return {"ok": True}
 
 @app.get("/api/collabs/pending")
@@ -1074,6 +1101,7 @@ def register_download(track_id: int, user=Depends(require_user)):
 
 @app.get("/api/avatars/{fname}")
 def get_avatar(fname: str):
+    fname = sec.safe_filename(fname)
     if storage.enabled():
         return RedirectResponse(storage.media_url(f'avatars/{fname}'), status_code=302)
     path = AVATARS_DIR / fname
@@ -1083,10 +1111,12 @@ def get_avatar(fname: str):
 # ── Search ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/search")
-def search(q: str = ''):
-    if not q.strip(): return {'tracks': [], 'users': []}
+def search(request: Request, q: str = ''):
+    rate_limit(request, 'search', 120, 60)
+    q = q.strip()[:100]
+    if not q: return {'tracks': [], 'users': []}
     # Public search only lists artists, never listener accounts.
-    return db.search(q.strip(), artists_only=True)
+    return db.search(q, artists_only=True)
 
 # ── Subscription ───────────────────────────────────────────────────────────────
 
@@ -1109,11 +1139,14 @@ def my_sub_request(user=Depends(require_user)):
 
 @app.post("/api/subscription/request")
 async def request_subscription(
+    request: Request,
     plan:    str = Form(...),
     note:    str = Form(''),
     receipt: UploadFile = File(...),
     user=Depends(require_user),
 ):
+    rate_limit(request, 'subreq', 6, 3600, str(user['id']))
+    note = clean_text(note, 'Nota', 500, multiline=True)
     if plan not in ('amante', 'pro', 'premium'):
         raise HTTPException(400, "Plan inválido")
     if plan in UPLOADER_PLANS and (user.get('account_type') or 'listener') != 'artist':
@@ -1124,12 +1157,14 @@ async def request_subscription(
     if ext not in IMAGE_MIME:
         raise HTTPException(400, "El recibo debe ser una imagen (JPG, PNG o WEBP)")
     fname = f"receipt_{user['id']}_{uuid.uuid4().hex}{ext}"
-    receipt_data = await receipt.read()
+    receipt_data = sec.sanitize_image(await sec.read_limited(receipt, sec.MAX_IMAGE_BYTES, 'El recibo'), ext)
+    # Los recibos llevan datos de pago: se guardan cifrados (solo el admin los ve).
+    receipt_data = sec.encrypt_bytes(receipt_data, _secret)
     if storage.enabled():
-        storage.put(f'receipts/{fname}', receipt_data, IMAGE_MIME.get(ext))
+        storage.put(f'receipts/{fname}', receipt_data, 'application/octet-stream')
     else:
         (RECEIPTS_DIR / fname).write_bytes(receipt_data)
-    rid = db.create_sub_request(user['id'], plan, note.strip(), fname)
+    rid = db.create_sub_request(user['id'], plan, note, fname)
     return {"id": rid, "status": "pending", "plan": plan}
 
 # ── Admin ──────────────────────────────────────────────────────────────────────
@@ -1194,10 +1229,21 @@ def admin_update_user(uid: int, body: AdminUserUpdate, user=Depends(require_admi
         kwargs['plan'] = body.plan
         if body.plan in UPLOADER_PLANS:
             kwargs['account_type'] = 'artist'
-    if body.is_admin is not None: kwargs['is_admin'] = body.is_admin
-    if body.is_curator is not None: kwargs['is_curator'] = body.is_curator
+    if body.is_admin is not None:
+        if body.is_admin not in (0, 1):
+            raise HTTPException(400, "Valor inválido")
+        if uid == user['id'] and body.is_admin == 0:
+            raise HTTPException(400, "No puedes quitarte el admin a ti mismo")
+        kwargs['is_admin'] = body.is_admin
+    if body.is_curator is not None:
+        if body.is_curator not in (0, 1):
+            raise HTTPException(400, "Valor inválido")
+        kwargs['is_curator'] = body.is_curator
+    target = db.get_user_by_id(uid)
+    if not target:
+        raise HTTPException(404, "Usuario no encontrado")
     db.update_user(uid, **kwargs)
-    return db.get_user_by_id(uid)
+    return _safe_user(db.get_user_by_id(uid))   # nunca devolver el hash de la contraseña
 
 class ResetPasswordBody(BaseModel):
     password: Optional[str] = None   # vacío = generar una contraseña temporal
@@ -1215,9 +1261,8 @@ def admin_reset_password(uid: int, body: ResetPasswordBody, user=Depends(require
         import secrets as _secrets
         alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'   # sin letras/números que se confunden
         pw = ''.join(_secrets.choice(alphabet) for _ in range(8))
-    if len(pw) < 6:
-        raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
-    db.update_password(uid, hash_password(pw))
+    sec.valid_password(pw)
+    db.update_password(uid, hash_password(pw))   # también cierra sus sesiones abiertas
     return {"ok": True, "username": target['username'], "email": target['email'], "password": pw}
 
 @app.get("/api/admin/subscriptions")
@@ -1236,17 +1281,19 @@ def admin_sub_receipt(req_id: int, user=Depends(require_admin)):
             data = storage.get_bytes(f"receipts/{req['receipt']}")
         except Exception:
             raise HTTPException(404, "Archivo de recibo no encontrado")
-        return Response(content=data, media_type=_mime(req['receipt'], IMAGE_MIME))
-    path = RECEIPTS_DIR / req['receipt']
-    if not path.exists():
-        raise HTTPException(404, "Archivo de recibo no encontrado")
-    return FileResponse(str(path), media_type=_mime(req['receipt'], IMAGE_MIME))
+    else:
+        path = RECEIPTS_DIR / sec.safe_filename(req['receipt'])
+        if not path.exists():
+            raise HTTPException(404, "Archivo de recibo no encontrado")
+        data = path.read_bytes()
+    return Response(content=sec.decrypt_bytes(data, _secret), media_type=_mime(req['receipt'], IMAGE_MIME),
+                    headers={'Cache-Control': 'no-store'})
 
 @app.post("/api/admin/subscriptions/{req_id}/review")
 def admin_review_sub(req_id: int, body: ReviewBody, user=Depends(require_admin)):
     if body.status not in ('approved', 'rejected'):
         raise HTTPException(400, "Estado inválido")
-    db.review_sub_request(req_id, user['id'], body.status, body.note)
+    db.review_sub_request(req_id, user['id'], body.status, clean_text(body.note, 'Nota', 500, multiline=True))
     return {"ok": True}
 
 @app.get("/api/admin/claims")
@@ -1291,7 +1338,7 @@ def admin_update_settings(body: SettingsBody, user=Depends(require_admin)):
                 'royalty_artist_percent', 'royalties_live'):
         val = getattr(body, key)
         if val is not None:
-            db.set_setting(key, val)
+            db.set_setting(key, clean_text(val, key, 4000, multiline=True))
     return db.get_all_settings()
 
 # ── Android app download ────────────────────────────────────────────────────────
@@ -1326,7 +1373,7 @@ def _spa_with_og(track_id: int):
         raise HTTPException(404)
     html = index.read_text(encoding='utf-8')
     t = db.get_track(track_id)
-    if t:
+    if t and _visible(t, None):
         who   = t.get('display_name') or t.get('username') or t.get('artist') or ''
         kind  = 'video' if t.get('media_type') == 'video' else 'canción'
         title = f"{t['title']} — {who}"

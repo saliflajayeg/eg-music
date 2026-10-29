@@ -70,6 +70,7 @@ function EmailCard({ user, refreshUser }) {
 }
 
 function PasswordCard() {
+  const { user, loginUser } = useAuth()
   const [form, setForm] = useState({ current: '', next: '', repeat: '' })
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
@@ -80,7 +81,9 @@ function PasswordCard() {
     if (form.next !== form.repeat) { setError('Las contraseñas nuevas no coinciden'); return }
     setLoading(true); setError(''); setDone(false)
     try {
-      await changePassword({ current_password: form.current, new_password: form.next })
+      const r = await changePassword({ current_password: form.current, new_password: form.next })
+      // Cambiar la contraseña cierra las demás sesiones; este dispositivo recibe una nueva.
+      if (r && r.token) loginUser(r.token, user)
       setForm({ current: '', next: '', repeat: '' })
       setDone(true)
     } catch (err) {
